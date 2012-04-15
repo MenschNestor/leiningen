@@ -8,7 +8,8 @@
             [clj-http.client :as client])
   (:import (java.util.zip ZipFile)
            (java.net URL)
-           (java.io File InputStream OutputStream FileOutputStream)))
+           (java.io File InputStream OutputStream FileOutputStream)
+           (org.apache.lucene.analysis KeywordAnalyzer)))
 
 ;;; Fetching Indices
 
@@ -85,8 +86,9 @@
     (let [location (.getAbsolutePath (index-location url))
           fetch-count (* page page-size)
           offset (* (dec page) page-size)
-          results (clucy/search (clucy/disk-index location)
-                                query fetch-count :default-field :a)]
+          results (binding [clucy/*analyzer* (KeywordAnalyzer.)]
+                    (clucy/search (clucy/disk-index location)
+                                  query fetch-count :default-field :a))]
       (with-meta (drop offset results) (meta results)))
     (binding [*out* *err*]
       (println "Warning: couldn't download index for" url))))
