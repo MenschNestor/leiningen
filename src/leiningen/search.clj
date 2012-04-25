@@ -9,7 +9,7 @@
   (:import (java.util.zip ZipFile)
            (java.net URL)
            (java.io File InputStream OutputStream FileOutputStream)
-           (org.apache.lucene.analysis KeywordAnalyzer)))
+           (org.apache.lucene.analysis KeywordAnalyzer PerFieldAnalyzerWrapper SimpleAnalyzer)))
 
 ;;; Fetching Indices
 
@@ -86,7 +86,9 @@
     (let [location (.getAbsolutePath (index-location url))
           fetch-count (* page page-size)
           offset (* (dec page) page-size)
-          results (binding [clucy/*analyzer* (KeywordAnalyzer.)]
+          results (binding [clucy/*analyzer*
+                            (doto (PerFieldAnalyzerWrapper. (SimpleAnalyzer.))
+                              (.addAnalyzer "a" (KeywordAnalyzer.)))]
                     (clucy/search (clucy/disk-index location)
                                   query fetch-count :default-field :a))]
       (with-meta (drop offset results) (meta results)))
