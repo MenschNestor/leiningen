@@ -160,7 +160,8 @@
             :path (format "META-INF/maven/%s/%s/pom.properties"
                           (:group project) (:name project))
             :bytes (.getBytes (pom/make-pom-properties project))}
-           {:type :bytes :path "project.clj"
+           {:type :bytes :path (format "META-INF/leiningen/%s/%s/project.clj"
+                                       (:group project) (:name project))
             :bytes (.getBytes (slurp (str (:root project) "/project.clj")))}]
           [{:type :path :path (:compile-path project)}
            {:type :paths :paths (:resource-paths project)}]
@@ -187,8 +188,11 @@ Create a $PROJECT-$VERSION.jar file containing project's source files as well
 as .class files if applicable. If project.clj contains a :main key, the -main
 function in that namespace will be used as the main-class for executable jar."
   [project]
-  (eval/prep (:without-profiles (meta project) project))
-  (let [jar-file (get-jar-filename project)]
-    (write-jar project jar-file (filespecs project []))
-    (main/info "Created" (str jar-file))
-    jar-file))
+  ;; TODO: we should just remove the default profiles, not use :without-profiles
+  ;; Fix once #512 lands
+  (let [project (:without-profiles (meta project) project)]
+    (eval/prep project)
+    (let [jar-file (get-jar-filename project)]
+      (write-jar project jar-file (filespecs project []))
+      (main/info "Created" (str jar-file))
+      jar-file)))

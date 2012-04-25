@@ -121,18 +121,19 @@ a `:profiles` key to project.clj like so:
 You can place any arbitrary defproject entries into a given profile
 and they will be merged into the project map when that profile is
 active. In addition to `project.clj`, profiles specified in
-`~/.lein/profiles.clj` will be available in all projects.
+`~/.lein/profiles.clj` will be available in all projects, though those
+from `profiles.clj` will be overridden by profiles of the same name in
+the `project.clj` file. This is why the `:user` profile is separate
+from `:dev`; the latter is intended to be specified in the project
+itself. In order to avoid collisions, the project should never define
+a `:user` profile, nor should `profiles.clj` define a `:dev` profile.
+If you want to access dependencies during development time for any
+project place them in your `:user` profile.
 
 ```clj
 {:user {:plugins [[lein-swank "1.4.0"]
                   [lein-pprint "1.1.1"]]}}
 ```
-
-The difference between the profiles active by default is that the
-`:default` profile comes with Leiningen, while the `:dev` profile is
-meant to be specified in project.clj and the `:user` plugin goes in
-your `~/.lein/profiles.clj` file.
-
 Another use of profiles is to test against various sets of dependencies:
 
 ```clj
@@ -262,7 +263,16 @@ explains how to write plugins.
   you can `export LEIN_JVM_OPTS=-XX:+TieredCompilation` to improve
   boot time. This requires Hotspot version 20 or newer. On newer versions
   of Leiningen it is enabled automatically.
-  
+
+**Q:** Why is Leiningen 2 still in a preview release?  
+**A:** As of the preview3 release, Leiningen 2 is very stable and
+  recommended for general use. The main thing keeping it from a final
+  release is the fact that the Clojars repository
+  [mingles snapshots with releases](https://github.com/ato/clojars-web/issues/24),
+  which is undesirable. Since switching the default repositories to a
+  releases-only Clojars (which hasn't been implemented yet) would be a
+  breaking change, a series of previews is being released in the mean time.
+
 **Q:** I don't have access to stdin inside my project.  
 **A:** This is a limitation of the JVM's process-handling methods;
   none of them expose stdin correctly. This means that functions like
