@@ -3,6 +3,7 @@
   (:require [cemerick.pomegranate.aether :as aether]
             [cemerick.pomegranate :as pomegranate]
             [clojure.java.io :as io]
+            [clojure.string :as str]
             [leiningen.core.user :as user])
   (:import (java.util.jar JarFile)
            (java.util.regex Pattern)
@@ -48,6 +49,19 @@
         (.mkdirs f)
         (io/copy (.getInputStream jar entry) f)))))
 
+(defn when-stale
+  "Call f with args when keys in project.clj have changed since the last run.
+  Stores value of project keys in stale directory inside :target-path."
+  [keys project f & args]
+  (let [file (io/file (:target-path project) "stale"
+                      (str/join "+" (map name keys)))
+        current-value (pr-str (map (juxt identity project) keys))
+        old-value (and (.exists file) (slurp file))]
+    (when (not= current-value old-value)
+      (apply f args)
+      (.mkdirs (.getParentFile file))
+      (spit file (doall current-value)))))
+
 (defn add-repo-auth
   "Repository credentials (a map containing some of
    #{:username :password :passphrase :private-key-file}) are discovered
@@ -80,7 +94,9 @@
   "Returns a map of the JVM proxy settings"
   []
   (when-let [proxy (System/getenv "http_proxy")]
-    (let [url (URL. proxy)
+    (let [url (try (URL. proxy)
+                   (catch java.net.MalformedURLException _
+                     (URL. (str "http://" proxy))))
           user-info (.getUserInfo url)
           [username password] (and user-info (.split user-info ":"))]
       {:host (.getHost url)
@@ -112,18 +128,20 @@
         (throw e)))))
 
 (defn resolve-dependencies
-  "Simply delegate regular dependencies to pomegranate. This will
-  ensure they are downloaded into ~/.m2/repositories and that native
-  deps have been extracted to :native-path. If :add-classpath? is
-  logically true, will add the resolved dependencies to Leiningen's
+  "Delegate dependencies to pomegranate. This will ensure they are
+  downloaded into ~/.m2/repository and that native components of
+  dependencies have been extracted to :native-path. If :add-classpath?
+  is logically true, will add the resolved dependencies to Leiningen's
   classpath.
 
-   Returns a set of the dependencies' files."
+  Returns a seq of the dependencies' files."
   [dependencies-key {:keys [repositories native-path] :as project} & rest]
-  (doto (->> (apply get-dependencies dependencies-key project rest)
-             (aether/dependency-files)
-             (filter #(re-find #"\.(jar|zip)$" (.getName %))))
-    (extract-native-deps native-path)))
+  (let [jars (->> (apply get-dependencies dependencies-key project rest)
+                  (aether/dependency-files)
+                  (filter #(re-find #"\.(jar|zip)$" (.getName %))))]
+    (when-stale [:dependencies] project
+                extract-native-deps jars native-path)
+    jars))
 
 (defn dependency-hierarchy
   "Returns a graph of the project's dependencies."

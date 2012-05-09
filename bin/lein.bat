@@ -44,11 +44,11 @@ if exist "%~f0\..\..\src\leiningen\core.clj" (
 
     if "x!LEIN_LIBS!" == "x" if not exist %LEIN_JAR% goto NO_DEPENDENCIES
 
-    set CLASSPATH=%CLASSPATH%;!LEIN_LIBS!;"!LEIN_ROOT!\src";"!LEIN_ROOT!\resources";%LEIN_JAR%
+    set CLASSPATH=%CONTEXT_CP%;!LEIN_LIBS!;"!LEIN_ROOT!\src";"!LEIN_ROOT!\resources";%LEIN_JAR%
 ) else (
     :: Not running from a checkout.
     if not exist %LEIN_JAR% goto NO_LEIN_JAR
-    set CLASSPATH=%CLASSPATH%;%LEIN_JAR%
+    set CLASSPATH=%CONTEXT_CP%;%LEIN_JAR%
 )
 
 if not "x%DEBUG%" == "x" echo CLASSPATH=%CLASSPATH%
@@ -169,14 +169,14 @@ goto EOF
 :: characters inside the TRAMPOLINE_FILE.
 setLocal DisableDelayedExpansion
 
-if %1 == "trampoline" (goto RUN_TRAMPOLINE) else (goto RUN_NORMAL)
+if "%1" == "trampoline" (goto RUN_TRAMPOLINE) else (goto RUN_NORMAL)
 
 :RUN_TRAMPOLINE
 set "TRAMPOLINE_FILE=%TEMP%\lein-trampoline-%RANDOM%.bat"
 %JAVA_CMD% -client %LEIN_JVM_OPTS% ^
  -Dleiningen.original.pwd="%ORIGINAL_PWD%" ^
  -Dleiningen.trampoline-file="%TRAMPOLINE_FILE%" ^
- -cp "%CLASSPATH%" clojure.main -e "(use 'leiningen.core.main)(-main \"%*\")"
+ -cp "%CLASSPATH%" clojure.main -e "(use 'leiningen.core.main)(apply -main (map str '(%*)))"
 
 if not exist "%TRAMPOLINE_FILE%" goto EOF
 call "%TRAMPOLINE_FILE%"

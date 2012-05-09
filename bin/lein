@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 LEIN_VERSION="2.0.0-SNAPSHOT"
 export LEIN_VERSION
@@ -7,12 +7,6 @@ case $LEIN_VERSION in
     *SNAPSHOT) SNAPSHOT="YES" ;;
     *) SNAPSHOT="NO" ;;
 esac
-
-# Make sure classpath is in unix format for manipulating, then put
-# it back to windows format when we use it
-if [ "$OSTYPE" = "cygwin" ] && [ "$CLASSPATH" != "" ]; then
-    CLASSPATH=`cygpath -up $CLASSPATH`
-fi
 
 if [ `id -u` -eq 0 ] && [ "$LEIN_ROOT" = "" ]; then
     echo "WARNING: You're currently running as root; probably by accident."
@@ -37,11 +31,6 @@ LEIN_JAR="$LEIN_HOME/self-installs/leiningen-$LEIN_VERSION-standalone.jar"
 
 if [ "$OSTYPE" = "cygwin" ]; then
     LEIN_HOME=`cygpath -w $LEIN_HOME`
-fi
-
-# apply context specific CLASSPATH entries
-if [ -f .lein-classpath ] && [ ! -f src/leiningen/version.clj ]; then
-    CLASSPATH="`cat .lein-classpath`:$CLASSPATH"
 fi
 
 # normalize $0 on certain BSDs
@@ -98,13 +87,19 @@ if [ -r "$BIN_DIR/../src/leiningen/version.clj" ]; then
 
     mkdir -p "$LEIN_DIR/target/classes"
     export LEIN_JVM_OPTS=${LEIN_JVM_OPTS:-"-Dclojure.compile.path=$LEIN_DIR/target/classes"}
-    CLASSPATH="$CLASSPATH:$LEIN_DIR/leiningen-core/src/"
+    CLASSPATH="$LEIN_DIR/leiningen-core/src/"
     CLASSPATH="$CLASSPATH:$(cat $LEIN_DIR/.lein-classpath 2> /dev/null)"
     CLASSPATH="$CLASSPATH:$LEIN_DIR/leiningen-core/lib/*"
-    CLASSPATH="$CLASSPATH:$LEIN_DIR/test:$LEIN_DIR/target/classes:$LEIN_DIR/src:$LEIN_DIR/resources:$LEIN_JAR"
-else
-    # Not running from a checkout
-    CLASSPATH="$CLASSPATH:$LEIN_JAR"
+    CLASSPATH="$CLASSPATH:$LEIN_DIR/test:$LEIN_DIR/target/classes"
+    CLASSPATH="$CLASSPATH:$LEIN_DIR/src:$LEIN_DIR/resources:$LEIN_JAR"
+else # Not running from a checkout
+    # apply context specific CLASSPATH entries
+    if [ -f .lein-classpath ]; then
+        CLASSPATH="`cat .lein-classpath`:$LEIN_JAR"
+    else
+        CLASSPATH="$LEIN_JAR"
+    fi
+
     export LEIN_JVM_OPTS=${LEIN_JVM_OPTS:-"-Xbootclasspath/a:$LEIN_JAR"}
 
     if [ ! -r "$LEIN_JAR" -a "$1" != "self-install" ]; then
@@ -112,12 +107,12 @@ else
     fi
 fi
 
-HTTP_CLIENT="wget --no-check-certificate -O"
+HTTP_CLIENT=${HTTP_CLIENT:-"wget -O"}
 if type -p curl >/dev/null 2>&1; then
     if [ "$https_proxy" != "" ]; then
         CURL_PROXY="-x $https_proxy"
     fi
-    HTTP_CLIENT="curl $CURL_PROXY --insecure -f -L -o"
+    HTTP_CLIENT="curl $CURL_PROXY -f -L -o"
 fi
 
 export JAVA_CMD=${JAVA_CMD:-"java"}

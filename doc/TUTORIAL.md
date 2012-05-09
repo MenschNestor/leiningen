@@ -97,11 +97,19 @@ This shows two versions available with the dependency vector notation
 for each. You can copy one of these directly into the `:dependencies`
 vector in `project.clj`.
 
-The "artifact id" here is "lancet", and "1.0.1" is the version you
-require. Every library also has a "group id", though for Clojure
-libraries it is often the same as the artifact-id, in which case you
-may omit it. For Java libraries often a reversed domain name is used
-as the group id.
+Within the vector, "lancet" is what Maven calls the "artifact
+id". "1.0.0" and "1.0.1" are distinct versions. Some
+libraries will also have "group ids", which are displayed
+like this:
+
+    [com.cedarsoft.utils.legacy/hibernate "1.3.4"]
+
+The group-id is the part before the slash. Especially for Java
+libraries, it's often a reversed domain name. Clojure libraries often
+use the same group-id and artifact-id (as with Lancet), in which case
+you can omit the group-id. If there is a library that's part of a
+larger group (such as `ring-jetty-adapter` being part of the `ring`
+project), the group-id is often the same across all the sub-projects.
 
 Sometimes versions will end in "-SNAPSHOT". This means that it is not
 an official release but a development build. Relying on snapshot
