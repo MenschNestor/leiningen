@@ -24,11 +24,7 @@
        "as it does not contain a project.clj file."))))
 
 (defn- checkout-dep-paths [project dep dep-project]
-  (if-let [shares (:checkout-deps-shares project)]
-    (map #(% dep-project) shares)
-    (concat (:source-paths dep-project)
-            (:resource-paths dep-project)
-            [(:compile-path dep-project)])))
+  (flatten (map dep-project (:checkout-deps-shares project))))
 
 (defn- checkout-deps-paths
   "Checkout dependencies are used to place source for a dependency
@@ -87,9 +83,6 @@
                                               (re-matches re? url))]
                                cred)))])))
 
-(defn add-auth [repositories]
-  (map add-repo-auth repositories))
-
 (defn get-proxy-settings
   "Returns a map of the JVM proxy settings"
   []
@@ -104,11 +97,17 @@
        :username username
        :password password})))
 
+(defn- update-policies [update checksum [repo-name opts]]
+  (let [opts (if update (assoc opts :update update) opts)
+        opts (if checksum (assoc opts :checksum checksum) opts)]
+    [repo-name opts]))
+
 (defn- root-cause [e]
   (last (take-while identity (iterate (memfn getCause) e))))
 
 (defn- get-dependencies
-  [dependencies-key {:keys [repositories local-repo offline?] :as project}
+  [dependencies-key {:keys [repositories local-repo offline? update checksum]
+                     :as project}
    & {:keys [add-classpath?]}]
   {:pre [(every? vector? (project dependencies-key))]}
   (try
@@ -117,7 +116,9 @@
        aether/resolve-dependencies)
      :local-repo local-repo
      :offline? offline?
-     :repositories (add-auth repositories)
+     :repositories (->> repositories
+                        (map add-repo-auth)
+                        (map (partial update-policies update checksum)))
      :coordinates (project dependencies-key)
      :transfer-listener :stdout
      :proxy (get-proxy-settings))

@@ -7,6 +7,7 @@
 
 (def project {:dependencies '[[org.clojure/clojure "1.3.0"]]
               :root "/tmp/lein-sample-project"
+              :target-path "/tmp/lein-sample-project/target"
               :source-path ["/tmp/lein-sample-project/src"]
               :resources-path ["/tmp/lein-sample-project/resources"]
               :test-path ["/tmp/lein-sample-project/test"]
@@ -20,3 +21,8 @@
                        `(spit ~(.getPath file) "foo"))
       (is (= "foo" (slurp file)))
       (.delete file))))
+
+(deftest test-jvm-opts
+  (is (= ["-Dhello=\"guten tag\"" "-XX:+HeapDumpOnOutOfMemoryError"]
+         (get-jvm-opts-from-env (str "-Dhello=\"guten tag\" "
+                                     "-XX:+HeapDumpOnOutOfMemoryError")))))

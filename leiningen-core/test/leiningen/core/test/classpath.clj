@@ -18,8 +18,10 @@
 (def project {:dependencies '[[org.clojure/clojure "1.3.0"]
                               [ring/ring-core "1.0.0-RC1"
                                :exclusions [commons-codec]]]
+              :checkout-deps-shares [:source-paths :resource-paths :compile-path]
               :repositories (:repositories project/defaults)
               :root "/tmp/lein-sample-project"
+              :target-path "/tmp/lein-sample-project/target"
               :source-paths ["/tmp/lein-sample-project/src"]
               :resource-paths ["/tmp/lein-sample-project/resources"]
               :test-paths ["/tmp/lein-sample-project/test"]})
@@ -86,5 +88,6 @@
     (is (= [["sonatype" {:url "https://oss.sonatype.org/"}]
             ["internal" {:password "reindur" :username "milgrim"
                          :url "https://sekrit.info/repo"}]]
-           (add-auth [["sonatype" {:url "https://oss.sonatype.org/"}]
-                      ["internal" {:url "https://sekrit.info/repo"}]])))))
+           (map add-repo-auth
+                [["sonatype" {:url "https://oss.sonatype.org/"}]
+                 ["internal" {:url "https://sekrit.info/repo"}]])))))

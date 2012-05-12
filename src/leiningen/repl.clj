@@ -20,7 +20,7 @@
                               [org.thnetos/cd-client "0.3.4"
                                :exclusions [org.clojure/clojure]]]})
 
-(def trampoline-profile {:dependencies '[[reply "0.1.0-beta5"
+(def trampoline-profile {:dependencies '[[reply "0.1.0-beta6"
                                          :exclusions [org.clojure/clojure]]]})
 
 (defn- start-server [project port ack-port]
@@ -32,7 +32,7 @@
             (while true (Thread/sleep Long/MAX_VALUE)))]
     (if project
       (eval/eval-in-project
-        (project/merge-profile project profile)
+       (project/merge-profiles project [profile])
         server-starting-form
         '(do (require 'clojure.tools.nrepl.server)
              (require 'complete.core)))
@@ -100,8 +100,8 @@ and port."
     (let [options (options-for-reply project :port (repl-port project))]
       (eval/eval-in-project
         (-> project
-            (project/merge-profile profile)
-            (project/merge-profile trampoline-profile))
+            (project/merge-profiles [profile])
+            (project/merge-profiles [trampoline-profile]))
         `(reply.main/launch-nrepl ~options)
         '(do (require 'reply.main)
              (require 'clojure.tools.nrepl.server)
