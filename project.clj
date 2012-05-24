@@ -11,6 +11,9 @@
                  [reply "0.1.0-beta6"]
                  [org.clojure/data.xml "0.0.3"]
                  [bultitude "0.1.5"]
+                 [org.apache.maven.indexer/indexer-core "4.1.2" :exclusions [org.apache.maven/maven-model
+                                                                             org.sonatype.aether/aether-api
+                                                                             org.sonatype.aether/aether-util]]
                  [clj-http "0.3.6"]]
   ;; checkout-deps don't work with :eval-in :leiningen
   :profiles {:dev {:resource-paths ["leiningen-core/dev-resources"]
