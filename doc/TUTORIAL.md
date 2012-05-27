@@ -13,7 +13,7 @@ configuration, and even this tutorial are also provided.
 ## Creating a Project
 
 We'll assume you've got Leiningen installed as per the
-[README](https://github.com/technomancy/leiningen/blob/preview/README.md). 
+[README](https://github.com/technomancy/leiningen/blob/preview/README.md).
 Generating a new project is easy:
 
     $ lein new my-stuff
@@ -78,21 +78,6 @@ They usually contain .class files (JVM bytecode) and .clj source
 files, but they can also contain other things like config
 files.
 
-<!-- 
-TODO: bring back this section if we can speed up search
-
-The `lein search` command will search each remote repository:
-
-    $ lein search lancet
-     == Results from clojars - Showing page 1 / 1 total
-    [lancet "1.0.0"] Dependency-based builds, Clojure Style.
-    [lancet "1.0.1"] Dependency-based builds, Clojure Style.
-
-Note that this command will take many minutes to run the first time
-you invoke it on a given machine; it needs to download a rather large
-index.
--->
-
 You can [search Clojars](http://clojars.org/search?q=clj-http) using its
 web interface.
 
@@ -101,9 +86,9 @@ web interface.
 This shows two different ways of specifying a dependency on the latest
 stable version of the `clj-http` library, one in Leiningen format and
 one in Maven format. We'll skip the Maven one for now, though you'll
-need to learn to read it for Java libraries. You can copy the
-Leiningen version directly into the `:dependencies` vector in
-`project.clj`.
+need to learn to read it for Java libraries from
+[Central](http://search.maven.org). You can copy the Leiningen version
+directly into the `:dependencies` vector in `project.clj`.
 
 Within the vector, "clj-http" is referred to as the "artifact id".
 "0.4.1" is the version. Some libraries will also have "group ids",
@@ -142,45 +127,111 @@ in project.clj. See the
 
 ## Running Code
 
-TODO: cover repl, run, trampoline tasks
+Enough setup; let's see some code running. Start with a REPL
+(read-eval-print loop):
 
-<!-- TODO: move this section
-## Profiles
+    $ lein repl
+    nREPL server started on port 40612
+    Welcome to REPL-y!
+    Clojure 1.4.0
+        Exit: Control+D or (exit) or (quit)
+    Commands: (user/help)
+        Docs: (doc function-name-here)
+              (find-doc "part-of-name-here")
+      Source: (source function-name-here)
+              (user/sourcery function-name-here)
+     Javadoc: (javadoc java-object-or-class-here)
+    Examples from clojuredocs.org: [clojuredocs or cdoc]
+              (user/clojuredocs name-here)
+              (user/clojuredocs "ns-here" "name-here")
 
-Sometimes you want to pull in dependencies that are really only
-necessary while developing; they aren't required for the project to
-function in production. You can do this by adding a `:dependencies`
-entry to the `:dev` profile. These will be available unless you
-specify different profiles using the `with-profiles` task, but they
-are not brought along when another project depends on your project.
+    user=>
 
-Using [midje](https://github.com/marick/Midje) for your tests would be
-a typical example; you would not want it included in production, but it's
-needed to run the tests:
+The REPL is an interactive prompt where you can enter arbitrary code
+to run in the context of your project. Since we've added `clj-http` to
+`:dependencies`, we are able to load it here along with code from the
+`my-stuff.core` namespace in your project's own `src/` directory:
 
-```clj
-(defproject my-stuff "0.1.0-SNAPSHOT"
-  :description "FIXME: write description"
-  :url "http://example.com/FIXME"
-  :license {:name "Eclipse Public License"
-            :url "http://www.eclipse.org/legal/epl-v10.html"}
-  :dependencies [[org.clojure/clojure "1.3.0"]]
-  :profiles {:dev {:dependencies [[midje "1.3.1"]]}})
-```
+    user=> (require 'my-stuff.core)
+    nil
+    user=> (my-stuff.core/-main)
+    Hello, World!
+    nil
+    user=> (require '[clj-http.client :as http])
+    nil
+    user=> (def response (http/get "http://leiningen.org"))
+    #'user/response
+    user=> (keys response)
+    (:trace-redirects :status :headers :body)
 
-Note that profile-specific dependencies are different from plugins in
-context; plugins run in Leiningen's process while dependencies run in
-your project itself. (Older versions of Leiningen lacked this distinction.)
+The call to `-main` shows both println output ("Hello, World!") and
+the return value (nil) together.
 
-If you have dependencies that are not _necessary_ for developing but
-just for convenience (things like
-[Swank Clojure](http://github.com/technomancy/swank-clojure) for Emacs
-support or [clj-stacktrace](http://github.com/mmcgrana/clj-stacktrace)
-you should add them to the `:user` profile in `~/.lein/profiles`
-instead of the `:dev` profile. Both those profiles are active by
-default; the difference is the convention for where they are specified.
+Built-in documentation is available via `doc`, while `clojuredocs`
+offers more thorough examples from the
+[ClojureDocs](http://clojuredocs.org) site:
 
--->
+    user=> (doc reduce)
+    -------------------------
+    clojure.core/reduce
+    ([f coll] [f val coll])
+      f should be a function of 2 arguments. If val is not supplied,
+      returns the result of applying f to the first 2 items in coll, then
+      applying f to that result and the 3rd item, etc. If coll contains no
+      items, f must accept no arguments as well, and reduce returns the
+      result of calling f with no arguments.  If coll has only 1 item, it
+      is returned and f is not called.  If val is supplied, returns the
+      result of applying f to val and the first item in coll, then
+      applying f to that result and the 2nd item, etc. If coll contains no
+      items, returns val and f is not called.
+
+    user=> (user/clojuredocs pprint)
+    Loading clojuredocs-client...
+    ========== vvv Examples ================
+      user=> (def *map* (zipmap
+                          [:a :b :c :d :e]
+                          (repeat
+                            (zipmap [:a :b :c :d :e]
+                              (take 5 (range))))))
+      #'user/*map*
+      user=> *map*
+      {:e {:e 4, :d 3, :c 2, :b 1, :a 0}, :d {:e 4, :d 3, :c 2, :b 1, :a 0}, :c {:e 4, :d 3, :c 2, :b 1, :a 0}, :b {:e 4, :d 3, :c 2, :b 1, :a 0}, :a {:e 4, :d 3, :c 2, :b 1, :a 0}}
+
+      user=> (clojure.pprint/pprint *map*)
+      {:e {:e 4, :d 3, :c 2, :b 1, :a 0},
+       :d {:e 4, :d 3, :c 2, :b 1, :a 0},
+       :c {:e 4, :d 3, :c 2, :b 1, :a 0},
+       :b {:e 4, :d 3, :c 2, :b 1, :a 0},
+       :a {:e 4, :d 3, :c 2, :b 1, :a 0}}
+      nil
+    ========== ^^^ Examples ================
+    1 example found for clojure.pprint/pprint
+
+You can even examine the source of functions:
+
+    user=> (source my-stuff.core/-main)
+    (defn -main
+      "I don't do a whole lot."
+      [& args]
+      (println "Hello, World!"))
+
+    user=> ; use control+d to exit
+
+If you already have code in a `-main` function ready to go and don't
+need to enter code interactively, the `run` task is simpler:
+
+    $ lein run -m my-stuff.core
+    Hello, World!
+
+Providing an alternate `-m` argument will tell Leiningen to look for
+the `-main` function in another namespace. Setting a default `:main` in
+`project.clj` lets you omit `-m`.
+
+For long-running `lein run` processes, you may wish to save memory
+with the trampoline higher-order task, which allows the Leiningen JVM
+process to exit before launching your project's JVM.
+
+    $ lein trampoline run -m my-stuff.server 5000
 
 ## Tests
 
@@ -296,17 +347,8 @@ You can run a regular (non-uber) jar with the `java`
 command-line tool, but that requires constructing the classpath
 yourself, so it's not a good solution for end-users.
 
-<!-- TODO: move to earlier -->
-Invoking `lein run` will launch your project's `-main` function as if
-from an uberjar, but without going through the packaging process. You
-can also specify an alternate namespace in which to look for `-main`
-with `lein run -m my.alternate.namespace ARG1 ARG2`.
-
-For long-running `lein run` processes, you may wish to use the
-trampoline task, which allows the Leiningen JVM process to exit before
-launching your project's JVM. This can save memory:
-
-    $ lein trampoline run -m my-stuff.server 5000
+Of course if you users already have Leiningen installed, you can
+instruct them to use `lein run` as described above.
 
 ### Server-side Projects
 
@@ -345,8 +387,8 @@ a public repository. While it's possible to
 [maintain your own private repository](https://github.com/technomancy/leiningen/blob/preview/doc/DEPLOY.md)
 or get it into Central, the easiest way is to publish it at
 [Clojars](http://clojars.org). Once you have
-[created an account](https://clojars.org/register) there, publishing
-is easy:
+[created an account](https://clojars.org/register) there with your SSH
+public key, publishing is easy:
 
     $ lein jar, pom
     $ scp pom.xml target/my-stuff-0.1.0.jar clojars@clojars.org:
