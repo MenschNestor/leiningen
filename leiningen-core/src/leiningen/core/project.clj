@@ -31,7 +31,7 @@
                :repositories (ordered/ordered-map
                               "central" {:url "http://repo1.maven.org/maven2"}
                               ;; TODO: point to releases-only before 2.0 is out
-                              "clojars" {:url "http://clojars.org/repo/"})
+                              "clojars" {:url "https://clojars.org/repo/"})
                :jar-exclusions [#"^\."]
                :uberjar-exclusions [#"(?i)^META-INF/[^/]*\.SF$"]})
 
@@ -128,7 +128,8 @@
   "Profiles get merged into the project map. The :dev and :user
   profiles are active by default."
   (atom {:default {:resource-paths ["dev-resources"]
-                   :plugins [['lein-newnew "0.3.1"]]
+                   :plugins [['lein-newnew "0.3.1"]
+                             ['reply "0.1.0-beta7"]]
                    :jvm-opts ["-XX:+TieredCompilation"]
                    :checkout-deps-shares [:source-paths
                                           :resource-paths
