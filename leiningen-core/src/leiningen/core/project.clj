@@ -31,9 +31,12 @@
                :repositories (ordered/ordered-map
                               "central" {:url "http://repo1.maven.org/maven2"}
                               ;; TODO: point to releases-only before 2.0 is out
-                              "clojars" {:url "https://clojars.org/repo/"})
+                              "clojars" {:url (if (= "Windows"
+                                                     (System/getProperty "os.name"))
+                                                "http://clojars.org/repo/"
+                                                "https://clojars.org/repo/")})
                :jar-exclusions [#"^\."]
-               :uberjar-exclusions [#"(?i)^META-INF/[^/]*\.SF$"]})
+               :uberjar-exclusions [#"(?i)^META-INF/[^/]*\.(SF|RSA)$"]})
 
 (defmacro defproject
   "The project.clj file must either def a project map or call this macro."
@@ -129,7 +132,7 @@
   profiles are active by default."
   (atom {:default {:resource-paths ["dev-resources"]
                    :plugins [['lein-newnew "0.3.1"]
-                             ['reply "0.1.0-beta7"]]
+                             ['reply "0.1.0-beta8"]]
                    :jvm-opts ["-XX:+TieredCompilation"]
                    :checkout-deps-shares [:source-paths
                                           :resource-paths
