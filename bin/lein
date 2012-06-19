@@ -1,6 +1,6 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-export LEIN_VERSION="2.0.0-preview5"
+export LEIN_VERSION="2.0.0-SNAPSHOT"
 
 case $LEIN_VERSION in
     *SNAPSHOT) SNAPSHOT="YES" ;;
@@ -89,6 +89,7 @@ if [ -r "$BIN_DIR/../src/leiningen/version.clj" ]; then
     mkdir -p "$LEIN_DIR/target/classes"
     export LEIN_JVM_OPTS=${LEIN_JVM_OPTS:-"-Dclojure.compile.path=$LEIN_DIR/target/classes"}
     CLASSPATH="$LEIN_DIR/leiningen-core/src/"
+    CLASSPATH="$CLASSPATH:$LEIN_DIR/leiningen-core/resources/"
     CLASSPATH="$CLASSPATH:$(cat $LEIN_DIR/.lein-classpath 2> /dev/null)"
     CLASSPATH="$CLASSPATH:$LEIN_DIR/leiningen-core/lib/*"
     CLASSPATH="$CLASSPATH:$LEIN_DIR/test:$LEIN_DIR/target/classes"
@@ -111,12 +112,15 @@ else # Not running from a checkout
     fi
 fi
 
-HTTP_CLIENT=${HTTP_CLIENT:-"wget -O"}
-if type -p curl >/dev/null 2>&1; then
-    if [ "$https_proxy" != "" ]; then
-        CURL_PROXY="-x $https_proxy"
+if [ "$HTTP_CLIENT" = "" ]; then
+    if type -p curl >/dev/null 2>&1; then
+        if [ "$https_proxy" != "" ]; then
+            CURL_PROXY="-x $https_proxy"
+        fi
+        HTTP_CLIENT="curl $CURL_PROXY -f -L -o"
+    else
+        HTTP_CLIENT="wget -O"
     fi
-    HTTP_CLIENT="curl $CURL_PROXY -f -L -o"
 fi
 
 export JAVA_CMD=${JAVA_CMD:-"java"}
@@ -176,7 +180,7 @@ elif [ "$1" = "upgrade" ]; then
                 echo
                 echo "Upgrading..."
                 TARGET="/tmp/lein-$$-upgrade"
-                if ["$OSTYPE" = "cygwin" ]; then
+                if [ "$OSTYPE" = "cygwin" ]; then
                     TARGET=`cygpath -w $TARGET`
                 fi
                 LEIN_SCRIPT_URL="https://github.com/technomancy/leiningen/raw/$TARGET_VERSION/bin/lein"
@@ -210,6 +214,7 @@ else
         -client -XX:+TieredCompilation \
         $LEIN_JVM_OPTS \
         -Dfile.encoding=UTF-8 \
+        -Dmaven.wagon.http.ssl.easy=false \
         -Dleiningen.original.pwd="$ORIGINAL_PWD" \
         -Dleiningen.trampoline-file=$TRAMPOLINE_FILE \
         -cp "$CLASSPATH" \

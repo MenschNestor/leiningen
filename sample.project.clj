@@ -48,6 +48,10 @@
   :plugins [[lein-pprint "1.1.1"]
             [lein-assoc "0.1.0"]
             [s3-wagon-private "1.1.1"]]
+  ;; If you configure a custom repository with a self-signed SSL
+  ;; certificate, you will need to add it here. Paths should be either
+  ;; be on Leiningen's classpath or relative to the project root.
+  :certificates ["blueant.pem"]
   ;; Each active profile gets merged into the project map. The :dev
   ;; and :user profiles are active by default, but the latter should be
   ;; looked up in ~/.lein/profiles.clj rather than set in project.clj.
@@ -143,7 +147,11 @@
                  ;;                           {:username "milgrim"
                  ;;                            :password "locative.1"}}}}
                  "snapshots" "http://blueant.com/archiva/snapshots"
-                 "releases" "http://blueant.com/archiva/internal"}
+                 "releases" {:url "http://blueant.com/archiva/internal"
+                             ;; Using :env as a value here will cause an
+                             ;; enironment variable to be used based on
+                             ;; the key; in this case LEIN_PASSWORD.
+                             :username "milgrim" :password :env}}
   ;; You can set :update and :checksum policies here to have them
   ;; apply for all :repositories. Usually you will not set :update
   ;; directly but apply the "update" profile instead.
@@ -170,7 +178,6 @@
   :jar-name "sample.jar"           ; name of the jar produced by 'lein jar'
   :uberjar-name "sample-standalone.jar" ; as above for uberjar
   ;; Options to pass to java compiler for java source
-  ;; See http://ant.apache.org/manual/Tasks/javac.html
   :javac-options [:destdir "classes/"]
   ;; Leave the contents of :source-paths out of jars (for AOT projects)
   :omit-source true
@@ -206,6 +213,9 @@
   ;; Defaults to :subprocess, but can also be :leiningen (for plugins)
   ;; or :classloader (experimental) to avoid starting a subprocess.
   :eval-in :leiningen
+  ;; Enable bootclasspath optimization. This improves boot time but interferes
+  ;; with using things like pomegranate at runtime and using Clojure 1.2.
+  :bootclasspath true
   ;; Set parent for working with in a multi-module maven project
   :parent [org.example/parent "0.0.1" :relative-path "../parent/pom.xml"]
   ;; Extensions here will be propagated to the pom but not used by Leiningen.

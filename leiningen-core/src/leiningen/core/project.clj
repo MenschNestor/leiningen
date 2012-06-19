@@ -6,9 +6,11 @@
             [clojure.set :as set]
             [ordered.map :as ordered]
             [cemerick.pomegranate :as pomegranate]
+            [leiningen.core.ssl :as ssl]
             [leiningen.core.user :as user]
             [leiningen.core.classpath :as classpath])
-  (:import (clojure.lang DynamicClassLoader)))
+  (:import (clojure.lang DynamicClassLoader)
+           (java.io PushbackReader)))
 
 (defn- unquote-project
   "Inside defproject forms, unquoting (~) allows for arbitrary evaluation."
@@ -21,6 +23,12 @@
              identity
              args))
 
+(def ^:private hooke-injection
+  (with-open [rdr (-> "robert/hooke.clj" io/resource io/reader PushbackReader.)]
+    `(do (ns ~'leiningen.core.injected)
+         ~@(doall (take 6 (rest (repeatedly #(clojure.core/read rdr)))))
+         (ns ~'user))))
+
 (def defaults {:source-paths ["src"]
                :resource-paths ["resources"]
                :test-paths ["test"]
@@ -31,15 +39,15 @@
                :repositories (ordered/ordered-map
                               "central" {:url "http://repo1.maven.org/maven2"}
                               ;; TODO: point to releases-only before 2.0 is out
-                              "clojars" {:url (if (= "Windows"
-                                                     (System/getProperty "os.name"))
-                                                "http://clojars.org/repo/"
-                                                "https://clojars.org/repo/")})
+                              "clojars" {:url "https://clojars.org/repo/"})
                :jar-exclusions [#"^\."]
-               :uberjar-exclusions [#"(?i)^META-INF/[^/]*\.(SF|RSA)$"]})
+               :jvm-opts ["-XX:+TieredCompilation"]
+               :certificates ["clojars.pem"]
+               :uberjar-exclusions [#"(?i)^META-INF/[^/]*\.(SF|RSA|DSA)$"]})
 
 (defmacro defproject
-  "The project.clj file must either def a project map or call this macro."
+  "The project.clj file must either def a project map or call this macro.
+  See `lein help sample` to see what arguments it accepts."
   [project-name version & {:as args}]
   `(let [args# ~(unquote-project args)]
      (def ~'project
@@ -63,8 +71,13 @@
                (for [[id repo] repositories]
                  [id (if (map? repo) repo {:url repo})]))))
 
+(defn- without-version [[id version & other]]
+  (-> (apply hash-map other)
+      (select-keys [:classifier :extension])
+      (assoc :id id)))
+
 (defn- dedupe-step [[deps seen] x]
-  (if (seen (first x))
+  (if (seen (without-version x))
     ;; this would be so much cleaner if we could just re-use profile-merge
     ;; logic, but since :dependencies are a vector, the :replace/:displace
     ;; calculations don't apply to nested vectors inside :dependencies.
@@ -72,7 +85,7 @@
       (if (or (:displace (meta seen-dep)) (:replace (meta x)))
         [(assoc deps (.indexOf deps seen-dep) x) seen]
         [deps seen]))
-    [(conj deps x) (conj seen (first x))]))
+    [(conj deps x) (conj seen (without-version x))]))
 
 (defn- dedupe-deps [deps]
   (first (reduce dedupe-step [[] #{}] deps)))
@@ -131,9 +144,8 @@
   "Profiles get merged into the project map. The :dev and :user
   profiles are active by default."
   (atom {:default {:resource-paths ["dev-resources"]
-                   :plugins [['lein-newnew "0.3.1"]
-                             ['reply "0.1.0-beta8"]]
-                   :jvm-opts ["-XX:+TieredCompilation"]
+                   :plugins [['lein-newnew "0.3.1"]]
+                   :injections [hooke-injection]
                    :checkout-deps-shares [:source-paths
                                           :resource-paths
                                           :compile-path]}
@@ -171,7 +183,6 @@
 
 (defn- lookup-profile [profiles profile-name]
   (let [result (profiles profile-name)]
-    ;; TODO: only warn when profiles are explicitly requested
     (when (and (nil? result) (not (#{:default :dev :user :test} profile-name)))
       (println "Warning: profile" profile-name "not found."))
     (if (keyword? result)
@@ -185,15 +196,16 @@
   the profiles.clj file in the project root, and the :profiles key from the
   project map."
   [project profiles-to-apply]
-  (when (some (comp :repositories val) (user/profiles))
-    (println "WARNING: :repositories detected in user-level profile!")
-    (println "See https://github.com/technomancy/leiningen/wiki/Repeatability"))
-  (let [profiles (merge @default-profiles (user/profiles) (:profiles project))]
-    ;; We reverse because we want profile values to override the
-    ;; project, so we need "last wins" in the reduce, but we want the
-    ;; first profile specified by the user to take precedence.
-    (map #(if (keyword? %) (lookup-profile profiles %) %)
-         (reverse profiles-to-apply))))
+  (let [user-profiles (user/profiles)]
+    (when (some (comp :repositories val) user-profiles)
+      (println "WARNING: :repositories detected in user-level profile!")
+      (println "See https://github.com/technomancy/leiningen/wiki/Repeatability"))
+    (let [profiles (merge @default-profiles user-profiles (:profiles project))]
+      ;; We reverse because we want profile values to override the
+      ;; project, so we need "last wins" in the reduce, but we want the
+      ;; first profile specified by the user to take precedence.
+      (map #(if (keyword? %) (lookup-profile profiles %) %)
+           (reverse profiles-to-apply)))))
 
 (defn ensure-dynamic-classloader []
   (let [thread (Thread/currentThread)
@@ -223,10 +235,19 @@
     (require (symbol m-ns)))
   ((resolve middleware-name) project))
 
+(defn load-certificates
+  "Load the SSL certificates specified by the project and register
+   them for use by Aether."
+  [project]
+  (let [certs (mapcat ssl/read-certs (:certificates project))
+        context (ssl/make-sslcontext (into (ssl/default-trusted-certs) certs))]
+    (ssl/register-scheme (ssl/https-scheme context))))
+
 (defn init-project
   "Initializes a project: loads plugins and hooks.
    Adds dependencies to Leiningen's classpath if required."
   [project]
+  (load-certificates project)
   (when (= :leiningen (:eval-in project))
     (doseq [path (classpath/get-classpath project)]
       (pomegranate/add-classpath path)))

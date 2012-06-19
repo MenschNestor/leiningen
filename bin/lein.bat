@@ -1,6 +1,6 @@
 @echo off
 
-set LEIN_VERSION=2.0.0-preview5
+set LEIN_VERSION=2.0.0-SNAPSHOT
 
 setLocal EnableExtensions EnableDelayedExpansion
 
@@ -29,7 +29,7 @@ if "x%LEIN_JAR%" == "x" set LEIN_JAR=!LEIN_HOME!\self-installs\leiningen-!LEIN_V
 if "%1" == "self-install" goto SELF_INSTALL
 if "%1" == "upgrade"      goto NO_UPGRADE
 
-if exist "%~dp0..\src\leiningen" (
+if exist "%~dp0..\src\leiningen\version.clj" (
     :: Running from source checkout.
     call :SET_LEIN_ROOT "%~dp0.."
 
@@ -39,7 +39,7 @@ if exist "%~dp0..\src\leiningen" (
 
     if "x!LEIN_LIBS!" == "x" goto NO_DEPENDENCIES
 
-    set CLASSPATH=!LEIN_LIBS!!LEIN_ROOT!\leiningen-core\src;!LEIN_ROOT!\leiningen-core\test;!LEIN_ROOT!\src;!LEIN_ROOT!\resources
+    set CLASSPATH=!LEIN_LIBS!!LEIN_ROOT!\leiningen-core\src;!LEIN_ROOT!\leiningen-core\resources;!LEIN_ROOT!\leiningen-core\test;!LEIN_ROOT!\src;!LEIN_ROOT!\resources
 
     :: Apply context specific CLASSPATH entries
     if exist "%~dp0..\.lein-classpath" (

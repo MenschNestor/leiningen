@@ -55,7 +55,7 @@
                       (str/join "+" (map name keys)))
         current-value (pr-str (map (juxt identity project) keys))
         old-value (and (.exists file) (slurp file))]
-    (when (and (:target-path project) (not= current-value old-value))
+    (when (and (:name project) (:target-path project) (not= current-value old-value))
       (apply f args)
       (.mkdirs (.getParentFile file))
       (spit file (doall current-value)))))
@@ -77,7 +77,8 @@
   that didn't have an explicit entry."
   [[id {:keys [url] :as repo}]]
   (let [repo-creds (or (user/credentials)
-                       (-> (user/profiles) :auth :repository-auth))]
+                       (-> (user/profiles) :auth :repository-auth))
+        repo (user/env-auth repo)]
     (when (-> (user/profiles) :auth :repository-auth)
       (println "Warning: :repository-auth in the :auth profile is deprecated.")
       (println "Please use ~/.lein/credentials.clj.gpg instead."))
@@ -144,8 +145,9 @@
   (let [jars (->> (apply get-dependencies dependencies-key project rest)
                   (aether/dependency-files)
                   (filter #(re-find #"\.(jar|zip)$" (.getName %))))]
-    (when-stale [:dependencies] project
-                extract-native-deps jars native-path)
+    (when-not (= :plugins dependencies-key)
+      (when-stale [dependencies-key] project
+                  extract-native-deps jars native-path))
     jars))
 
 (defn dependency-hierarchy
