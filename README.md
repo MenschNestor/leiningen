@@ -104,7 +104,9 @@ for a full list. If a plugin is needed for successful test or build
 runs, (such as `lein-tar`) then it should be added to `:plugins` in
 project.clj, but if it's for your own convenience (such as
 `swank-clojure`) then it should be added to the `:plugins` list in the
-`:user` profile from `~/.lein/profiles.clj`. The
+`:user` profile from `~/.lein/profiles.clj`. See the
+[profiles guide](https://github.com/technomancy/leiningen/blob/preview/doc/PROFILES.md)
+for details on how to add to your user profile. The
 [plugin guide](https://github.com/technomancy/leiningen/blob/preview/doc/PLUGINS.md)
 explains how to write plugins.
 
@@ -112,7 +114,7 @@ explains how to write plugins.
 
 Please report issues on the
 [GitHub issue tracker](https://github.com/technomancy/leiningen/issues)
-or the [mailing list](http://groups.google.com/group/leiningen).
+or the [mailing list](http://librelist.com/browser/leiningen/).
 Personal email addresses are **not** appropriate for bug reports. See
 the
 [readme for the leiningen-core library](https://github.com/technomancy/leiningen/blob/master/leiningen-core/README.md)

@@ -6,6 +6,8 @@
             [clojure.set :as set]
             [ordered.map :as ordered]
             [cemerick.pomegranate :as pomegranate]
+            [cemerick.pomegranate.aether :as aether]
+            [leiningen.core.utils :as utils]
             [leiningen.core.ssl :as ssl]
             [leiningen.core.user :as user]
             [leiningen.core.classpath :as classpath])
@@ -40,6 +42,8 @@
                               "central" {:url "http://repo1.maven.org/maven2"}
                               ;; TODO: point to releases-only before 2.0 is out
                               "clojars" {:url "https://clojars.org/repo/"})
+               :deploy-repositories {"clojars" {:url "https://clojars.org/repo/"
+                                                :password :gpg}}
                :jar-exclusions [#"^\."]
                :jvm-opts ["-XX:+TieredCompilation"]
                :certificates ["clojars.pem"]
@@ -68,7 +72,9 @@
          (into (if-not omit-default-repositories
                  (:repositories defaults)
                  (ordered/ordered-map))
-               (for [[id repo] repositories]
+               (for [[id repo] repositories
+                     ;; user-level :repos entries may contain just credentials
+                     :when (or (string? repo) (:url repo))]
                  [id (if (map? repo) repo {:url repo})]))))
 
 (defn- without-version [[id version & other]]
@@ -143,14 +149,13 @@
 (def default-profiles
   "Profiles get merged into the project map. The :dev and :user
   profiles are active by default."
-  (atom {:default {:resource-paths ["dev-resources"]
-                   :plugins [['lein-newnew "0.3.1"]]
-                   :injections [hooke-injection]
-                   :checkout-deps-shares [:source-paths
-                                          :resource-paths
-                                          :compile-path]}
-         :production {}
-         :test {}
+  (atom {:default [:dev :user :base]
+         :base {:resource-paths ["dev-resources"]
+                :plugins [['lein-newnew "0.3.4"]]
+                :checkout-deps-shares [:source-paths
+                                       :resource-paths
+                                       :compile-path]}
+         :leiningen/test {:injections [hooke-injection]}
          :update {:update :always}
          :offline {:offline? true}
          :debug {:debug true}}))
@@ -177,35 +182,60 @@
 
         :else (doto latter (println "has a type mismatch merging profiles."))))
 
-(defn- merge-profile [project profile]
+(defn- combine-profile [project profile]
   (vary-meta (merge-with profile-key-merge project profile)
              update-in [:included-profiles] conj profile))
 
-(defn- lookup-profile [profiles profile-name]
-  (let [result (profiles profile-name)]
-    (when (and (nil? result) (not (#{:default :dev :user :test} profile-name)))
-      (println "Warning: profile" profile-name "not found."))
-    (if (keyword? result)
-      (recur profiles result)
-      result)))
+(defn- combine-profiles [project profiles]
+  ;; We reverse because we want profile values to override the project, so we
+  ;; need "last wins" in the reduce, but we want the first profile specified by
+  ;; the user to take precedence.
+  (reduce combine-profile
+          project
+          (reverse profiles)))
+
+(defn- lookup-profile
+  "Lookup a profile in the given profiles map, warning when the profile doesn't
+  exist. Recurse whenever a keyword or vector is found, combining all profiles
+  in the vector."
+  [profiles profile]
+  (cond (keyword? profile)
+        (let [result (get profiles profile)]
+          (when (and (nil? result) (not (#{:dev :user :test :production} profile)))
+            (println "Warning: profile" profile "not found."))
+          (lookup-profile profiles result))
+
+        (vector? profile)
+        (combine-profiles {} (map (partial lookup-profile profiles) profile))
+
+        :else profile))
+
+(defn- warn-user-repos []
+  (when (->> (vals (user/profiles))
+             (map (comp vals :repositories))
+             (apply concat) (some :url))
+    (println "WARNING: :repositories detected in user-level profile!")
+    (println "See https://github.com/technomancy/leiningen/wiki/Repeatability")))
+
+(alter-var-root #'warn-user-repos memoize)
+
+(defn- project-profiles [project]
+  (utils/read-file (io/file (:root project) "profiles.clj")))
 
 (defn- profiles-for
   "Read profiles from a variety of sources.
 
   We check Leiningen's defaults, the profiles.clj file in ~/.lein/profiles.clj,
   the profiles.clj file in the project root, and the :profiles key from the
-  project map."
+  project map.
+
+  Any profile can also be a composite profile. If the profile value is a vector,
+  then the specified profiles will be combined using combine-profiles."
   [project profiles-to-apply]
-  (let [user-profiles (user/profiles)]
-    (when (some (comp :repositories val) user-profiles)
-      (println "WARNING: :repositories detected in user-level profile!")
-      (println "See https://github.com/technomancy/leiningen/wiki/Repeatability"))
-    (let [profiles (merge @default-profiles user-profiles (:profiles project))]
-      ;; We reverse because we want profile values to override the
-      ;; project, so we need "last wins" in the reduce, but we want the
-      ;; first profile specified by the user to take precedence.
-      (map #(if (keyword? %) (lookup-profile profiles %) %)
-           (reverse profiles-to-apply)))))
+  (warn-user-repos)
+  (let [profiles (merge @default-profiles (user/profiles)
+                        (:profiles project) (project-profiles project))]
+    (map (partial lookup-profile profiles) profiles-to-apply)))
 
 (defn ensure-dynamic-classloader []
   (let [thread (Thread/currentThread)
@@ -217,7 +247,12 @@
   ([project key]
      (when (seq (project key))
        (ensure-dynamic-classloader)
-       (classpath/resolve-dependencies key project :add-classpath? true)))
+       (classpath/resolve-dependencies key project :add-classpath? true))
+     (doseq [wagon-file (-> (.getContextClassLoader (Thread/currentThread))
+                            (.getResources "leiningen/wagons.clj")
+                            (enumeration-seq))
+             [hint factory] (read-string (slurp wagon-file))]
+       (aether/register-wagon-factory! hint (eval factory))))
   ([project] (load-plugins project :plugins)))
 
 (defn- load-hooks [project]
@@ -258,8 +293,7 @@
 (defn merge-profiles
   "Look up and merge the given profile names into the project map."
   [project profiles-to-apply]
-  (let [merged (reduce merge-profile project
-                       (profiles-for project profiles-to-apply))]
+  (let [merged (combine-profiles project (profiles-for project profiles-to-apply))]
     (vary-meta (normalize merged) merge
                {:without-profiles (normalize (:without-profiles (meta project) project))
                 :included-profiles (concat (:included-profiles (meta project))
@@ -303,13 +337,15 @@
   ([file profiles]
      (locking read
        (binding [*ns* (find-ns 'leiningen.core.project)]
-         (load-file file))
-       (let [project (or (resolve 'leiningen.core.project/project)
-                         (throw
-                          (Exception. "project.clj must define project map.")))]
+         (try (load-file file)
+              (catch Exception e
+                (throw (Exception. "Error loading project.clj" e)))))
+       (let [project (resolve 'leiningen.core.project/project)]
+         (when-not project
+           (throw (Exception. "project.clj must define project map.")))
          ;; return it to original state
          (ns-unmap 'leiningen.core.project 'project)
          (-> (reduce apply-middleware @project (:middleware @project))
              (merge-profiles profiles)))))
-  ([file] (read file [:dev :user :default]))
+  ([file] (read file [:default]))
   ([] (read "project.clj")))

@@ -5,20 +5,26 @@
             [clojure.java.io :as io]
             [clojure.string :as string]))
 
-(def aliases (atom {"--help" "help", "-h" "help", "-?" "help", "-v" "version"
-                    "--version" "version", "überjar" "uberjar"
-                    "-o" ["with-profile" "offline,dev,user,default"]
-                    "-U" ["with-profile" "update,dev,user,default"]
-                    "cp" "classpath" "halp" "help"
-                    "with-profiles" "with-profile"
-                    "readme" ["help" "readme"]
-                    "tutorial" ["help" "tutorial"]
-                    "sample" ["help" "sample"]}))
+(def aliases {"-h" "help", "-help" "help", "--help" "help", "-?" "help",
+              "-v" "version", "-version" "version", "--version" "version",
+              "überjar" "uberjar",
+              "-o" ["with-profile" "offline,dev,user,default"]
+              "-U" ["with-profile" "update,dev,user,default"]
+              "cp" "classpath" "halp" "help"
+              "with-profiles" "with-profile"
+              "readme" ["help" "readme"]
+              "tutorial" ["help" "tutorial"]
+              "sample" ["help" "sample"]})
 
 (defn lookup-alias [task-name project]
-  (or (@aliases task-name)
+  (or (aliases task-name)
       (get (:aliases project) task-name)
       task-name "help"))
+
+(defn task-args [args project]
+  (if (= "help" (aliases (second args)))
+    ["help" [(first args)]]
+    [(lookup-alias (first args) project) (rest args)]))
 
 (def ^:dynamic *debug* (System/getenv "DEBUG"))
 
@@ -36,11 +42,11 @@
 (defn exit
   "Exit the process. Rebind *exit-process?* in order to suppress actual process
   exits for tools which may want to continue operating."
-  ([code]
+  ([exit-code]
      (if *exit-process?*
        (do (shutdown-agents)
-           (System/exit code))
-       (throw (Exception. (str "Suppressed exit: " code)))))
+           (System/exit exit-code))
+       (throw (ex-info "Suppressed exit" {:exit-code exit-code}))))
   ([] (exit 0)))
 
 (defn abort
@@ -122,7 +128,8 @@ or by executing \"lein upgrade\". ")
 (defn- warn-chaining [task-name args]
   (when (and (some #(.endsWith (str %) ",") (cons task-name args))
              (not-any? #(= % "do") (cons task-name args)))
-    (println "WARNING: task chaining has been moved to the \"do\" task.")
+    (println "WARNING: task chaining has been moved to the \"do\" task. For example,")
+    (println "\"lein javac, test\" should now be called as \"lein do javac, test\" ")
     (println "See `lein help do` for details.")))
 
 (defn user-agent []
@@ -140,11 +147,11 @@ or by executing \"lein upgrade\". ")
 
 (defn -main
   "Run a task or comma-separated list of tasks."
-  [& [task-name & args]]
+  [& raw-args]
   (user/init)
   (let [project (if (.exists (io/file "project.clj"))
                   (project/init-project (project/read)))
-        task-name (lookup-alias task-name project)]
+        [task-name args] (task-args raw-args project)]
     (when (:min-lein-version project)
       (verify-min-version project))
     (http-settings)

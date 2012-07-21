@@ -23,12 +23,15 @@
 **A:** If you create a directory called `checkouts` in your project
   root and symlink some other project roots into it, Leiningen will
   allow you to hack on them in parallel. That means changes in the
-  dependency will be visible in the main project without having to go
-  through the whole install/switch-projects/deps/restart-repl cycle,
-  and the copy in `checkouts` will take precedence over the dependency
-  declared in project.clj. Note that this is not a replacement for
-  listing the project in `:dependencies`; it simply supplements that for
-  convenience.
+  dependency's source code will be visible in the main project without
+  having to go through the whole
+  install/switch-projects/deps/restart-repl cycle, and the copy in
+  `checkouts` will take precedence over the dependency declared in
+  project.clj. Note that this is not a replacement for listing the
+  project in your main project's `:dependencies`; it simply
+  supplements that for convenience. There is no special handling of
+  subproject dependencies; if you change them you will need to `lein
+  install` the subproject again.
 
 **Q:** Is it possible to exclude indirect dependencies?  
 **A:** Yes. Some libraries, such as log4j, depend on projects that are
@@ -86,10 +89,12 @@
   example.) Otherwise you can use the basic `lein repl`.
 
 **Q:** Still too slow; what else can make startup faster?  
-**A:** If you are running an older version of Leiningen (before 1.7)
-  you can `export LEIN_JVM_OPTS=-XX:+TieredCompilation` to improve
-  boot time. This requires Hotspot version 20 or newer. On newer versions
-  of Leiningen it is enabled automatically.
+**A:** You can usually set `:bootclasspath true` in project.clj to
+  speed up project launches, though there are compatibility issues in
+  some cases. If you are running an older version of Leiningen (before
+  1.7) you can also `export LEIN_JVM_OPTS=-XX:+TieredCompilation` to
+  improve boot time. This requires Hotspot version 20 or newer. On
+  newer versions of Leiningen it is enabled automatically.
 
 **Q:** Why is Leiningen 2 still in a preview release?  
 **A:** As of the preview3 release, Leiningen 2 is very stable and

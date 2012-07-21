@@ -40,6 +40,16 @@
           "NUL"
           "/dev/null")))
 
+(defn prep-tasks
+  "Execute all the prep-tasks. A task can either be a string, or a
+  vector if it takes arguments. see :prep-tasks in sample.project.clj
+  for examples"
+  [{:keys [prep-tasks] :as project}]
+  (doseq [task prep-tasks]
+    (let [[task-name & task-args] (if (vector? task) task [task])
+          task-name (main/lookup-alias task-name project)]
+      (main/apply-task task-name (dissoc project :prep-tasks) task-args))))
+
 ;; # Form Wrangling
 
 (defn prep [project]
@@ -52,8 +62,7 @@
          (main/info "It's possible the specified jar is not in any repository.")
          (main/info "If so, see \"Free-floating Jars\" under http://j.mp/repeatability")
          (main/abort)))
-  (doseq [task (:prep-tasks project)]
-    (main/apply-task task (dissoc project :prep-tasks) []))
+  (prep-tasks project)
   (.mkdirs (io/file (:compile-path project "/tmp")))
   (when-let [prepped (:prepped (meta project))]
     (deliver prepped true)))
@@ -161,11 +170,10 @@
   (binding [*dir* (:root project)]
     (let [exit-code (apply sh (shell-command project form))]
       (when (pos? exit-code)
-        (throw (Exception. (str "Process exited with " exit-code)))))))
+        (throw (ex-info "Subprocess failed" {:exit-code exit-code}))))))
 
 (defmethod eval-in :trampoline [project form]
-  (deliver (:trampoline-promise (meta project))
-           (shell-command project form)))
+  (swap! (:trampoline-forms (meta project)) conj form))
 
 (defmethod eval-in :classloader [project form]
   (let [classpath   (map io/file (classpath/get-classpath project))

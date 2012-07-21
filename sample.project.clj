@@ -69,11 +69,11 @@
   ;; example, "lein with-magic run -m hi.core" would be equivalent to
   ;; "lein assoc :magic true run -m hi.core".
   :aliases {"launch" "run"
-            "with-magic" ["assoc" ":magic" "true"]}
+            "dumbrepl" ["trampoline" "run" "-m" "clojure.main/main"]}
   ;; Normally Leiningen runs the javac and compile tasks before
   ;; calling any eval-in-project code, but you can override this with
   ;; the :prep-tasks key to do other things like compile protocol buffers.
-  :prep-tasks ["protoc" "compile"]
+  :prep-tasks [["protobuf" "compile"] "javac" "compile"]
   ;; Warns users of earlier versions of Leiningen.
   :min-lein-version "2.0.0"
   ;; Paths to include on the classpath from each project in the
@@ -161,6 +161,14 @@
   ;; dependency resolution.
   :deploy-repositories {"releases" "http://blueant.com/archiva/internal/releases"
                         "snapshots" "http://blueant.com/archiva/internal/snapshots"}
+  ;; Fetch dependencies from mirrors. Mirrors override repositories when the key
+  ;; in the :mirrors map matches either the name or URL of a specified
+  ;; repository. All settings supported in :repositories may be set here too.
+  :mirrors {"central" {:name "Ibiblio"
+                       :url "http://mirrors.ibiblio.org/pub/mirrors/maven2"}
+            #"clojars" {:name "Internal nexus"
+                        :url "http://mvn.local/nexus/releases"
+                        :repo-manager true}}
   ;; Prevent Leiningen from checking the network for dependencies.
   ;; This wouldn't normally be set in project.clj; it would come from a profile.
   :offline? true
@@ -177,8 +185,9 @@
   :target-path "target/"           ; where to place the project's jar file
   :jar-name "sample.jar"           ; name of the jar produced by 'lein jar'
   :uberjar-name "sample-standalone.jar" ; as above for uberjar
-  ;; Options to pass to java compiler for java source
-  :javac-options {:destdir "classes/"}
+  ;; Options to pass to java compiler for java source,
+  ;; exactly the same as command line arguments to javac
+  :javac-options ["-target" "1.6" "-source" "1.6" "-Xlint:-options"]
   ;; Leave the contents of :source-paths out of jars (for AOT projects)
   :omit-source true
   ;; Files with names matching any of these patterns will be excluded from jars

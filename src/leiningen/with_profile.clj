@@ -6,10 +6,9 @@
   "Apply the given task with a comma-separated profile list."
   [project profiles task-name & args]
   (let [profiles (map keyword (.split profiles ","))
-        project (project/merge-profiles project profiles)
-        task-name (or (@main/aliases task-name)
-                      (get (:aliases project) task-name)
-                      task-name)]
+        project (update-in (project/merge-profiles project profiles)
+                           [:aliases] (fnil dissoc {}) task-name)
+        task-name (main/lookup-alias task-name project)]
     (main/apply-task task-name project args)))
 
 (defn ^:no-project-needed ^:higher-order with-profile
@@ -32,7 +31,7 @@ For a detailed description of profiles, see `lein help profiles`."
              (catch Exception e
                (main/info (format "Error encountered performing task '%s' with profile(s): '%s'"
                            task-name profile-group))
-               (when-not (re-find #"Suppressed exit:" (or (.getMessage e) ""))
+               (when-not (:exit-code (ex-data e))
                  (.printStackTrace e))
                (swap! failures inc)))))
     (when (pos? @failures)

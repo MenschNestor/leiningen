@@ -4,8 +4,9 @@ See also https://github.com/technomancy/leiningen/issues
 
 * For 2.0.0
 ** 2.0.0-final
-   - [ ] Reduce Aether verbosity (#610)
+   - [X] Allow trampoline to work with chaining in do task (#665)
    - [ ] Improve speed of trampoline restarts (#573)
+   - [ ] Reduce Aether verbosity (#610)
    - [ ] Isolate target dir per profile (#468)
    - [ ] Honor mirror for search indices (#281)
    - [ ] Drop clojars snapshots from default repos (#241)
@@ -14,10 +15,11 @@ See also https://github.com/technomancy/leiningen/issues
    - [X] Address gpg agent issues (#615)
    - [X] Stale directory clutter (#589)
    - [X] Fix de-dupe with :classifier/:extension (#645)
-   - [ ] Allow jars to be signed, document in deploying guide. (#519)
-   - [ ] Mirror support (#271)
-   - [ ] Warn when <scm> isn't in pom (#641)
-   - [ ] Check project for :scm (#640)
+   - [X] Check project for :scm (#640)
+   - [X] Mirror support (#271)
+   - [X] Only look up repo credentials when necessary (#657)
+   - [X] Allow jars to be signed, document in deploying guide. (#519)
+   - [X] Fix javac to abort on failure (#658)
 ** preview4
    - [X] Don't re-extract native deps (#535)
    - [X] Make offline profile use dev profile (#514) (LHF)

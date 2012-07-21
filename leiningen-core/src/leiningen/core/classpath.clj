@@ -6,7 +6,6 @@
             [clojure.string :as str]
             [leiningen.core.user :as user])
   (:import (java.util.jar JarFile)
-           (java.util.regex Pattern)
            (java.net URL)))
 
 ;; Basically just for re-throwing a more comprehensible error.
@@ -75,19 +74,8 @@
 
   would be applied to all repositories with URLs matching the regex key
   that didn't have an explicit entry."
-  [[id {:keys [url] :as repo}]]
-  (let [repo-creds (or (user/credentials)
-                       (-> (user/profiles) :auth :repository-auth))
-        repo (user/env-auth repo)]
-    (when (-> (user/profiles) :auth :repository-auth)
-      (println "Warning: :repository-auth in the :auth profile is deprecated.")
-      (println "Please use ~/.lein/credentials.clj.gpg instead."))
-    (if-let [match (get repo-creds url)]
-      [id (merge repo match)]
-      [id (merge repo (first (for [[re? cred] repo-creds
-                                   :when (and (instance? Pattern re?)
-                                              (re-find re? url))]
-                               cred)))])))
+  [[id repo]]
+  [id (-> repo user/profile-auth user/gpg-auth user/env-auth)])
 
 (defn get-proxy-settings
   "Returns a map of the JVM proxy settings"
@@ -111,8 +99,8 @@
   (last (take-while identity (iterate (memfn getCause) e))))
 
 (defn- get-dependencies
-  [dependencies-key {:keys [repositories local-repo offline? update checksum]
-                     :as project}
+  [dependencies-key {:keys [repositories local-repo offline? update
+                            checksum mirrors] :as project}
    & {:keys [add-classpath?]}]
   {:pre [(every? vector? (project dependencies-key))]}
   (try
@@ -125,6 +113,7 @@
                         (map add-repo-auth)
                         (map (partial update-policies update checksum)))
      :coordinates (project dependencies-key)
+     :mirrors mirrors
      :transfer-listener :stdout
      :proxy (get-proxy-settings))
     (catch Exception e
