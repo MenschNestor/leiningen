@@ -2,118 +2,96 @@
   (:require [clojure.java.io :as io]
             [clojure.string :as string]
             [leiningen.core.user :as user]
-            [leiningen.core.project :as project]
             [leiningen.core.main :as main]
-            [clucy.core :as clucy]
             [clj-http.client :as http])
-  (:import (java.util.zip ZipFile)
-           (java.net URL)
-           (java.io File InputStream OutputStream FileOutputStream)
-           (org.apache.lucene.analysis KeywordAnalyzer PerFieldAnalyzerWrapper SimpleAnalyzer)))
+  (:import (org.apache.maven.index IteratorSearchRequest MAVEN NexusIndexer)
+           (org.apache.maven.index.context IndexingContext)
+           (org.apache.maven.index.creator JarFileContentsIndexCreator
+                                           MavenPluginArtifactInfoIndexCreator
+                                           MinimalArtifactInfoIndexCreator)
+           (org.apache.maven.index.expr UserInputSearchExpression)
+           (org.apache.maven.index.updater IndexUpdater IndexUpdateRequest
+                                           ResourceFetcher)
+           (org.codehaus.plexus DefaultPlexusContainer PlexusContainer)))
 
-;;; Fetching Indices
+(defonce container (DefaultPlexusContainer.))
 
-(defn- unzip [source target-dir]
-  (let [zip (ZipFile. source)
-        entries (enumeration-seq (.entries zip))
-        target-file #(io/file target-dir (.getName %))]
-    (doseq [entry entries :when (not (.isDirectory entry))
-            :let [f (target-file entry)]]
-      (.mkdirs (.getParentFile f))
-      (io/copy (.getInputStream zip entry) f))))
+(defonce indexer (.lookup container NexusIndexer))
 
-(defn ^:internal index-location [url]
+(def ^:private default-indexers [(MinimalArtifactInfoIndexCreator.)
+                                 (JarFileContentsIndexCreator.)
+                                 (MavenPluginArtifactInfoIndexCreator.)])
+
+(defn index-location [url]
   (io/file (user/leiningen-home) "indices" (string/replace url #"[:/]" "_")))
 
-(defn ^:internal remote-index-url [url]
-  (URL. (format "%s/.index/nexus-maven-repository-index.zip" url)))
+(defn- add-context [[id {:keys [url]}]]
+  (.addIndexingContextForced indexer id url nil (index-location url)
+                             url nil default-indexers))
 
-(defn- download [^URL url ^OutputStream out-stream  & {:keys [callback]}]
-  (let [resp (http/get (str url) {:as :stream
-                                  :headers {"User-Agent" (main/user-agent)}})
-        content-len (try (Long/valueOf
-                          (get-in resp [:headers "content-length"]))
-                         (catch Exception _))
-        in ^InputStream (:body resp) ;closes itself after completion
-        buf (byte-array 1024)]
-    (loop [cnt 0]
-      (let [size (.read in buf)]
-        (when (pos? size)
-          (let [cnt* (+ cnt size)]
-            (.write out-stream buf 0 size)
-            (when callback
-              (callback {:byte-count cnt*
-                         :content-len content-len
-                         :percentage (when content-len
-                                       (int (* 100 (/ cnt* content-len))))}))
-            (recur cnt*)))))))
+(defn- remove-context [context]
+  (.removeIndexingContext indexer context false))
 
-(defn- download-index [[id {url :url}]]
-  (main/info "Downloading index from" id "-" url)
-  (main/info "This can take a very, very long time. While you wait you might")
-  (main/info "be interested in searching via the web interfaces at")
-  (main/info "http://search.maven.org or http://clojars.org.")
-  (main/info "0%...")
-  (flush)
-  (let [index-url ^URL (remote-index-url url)
-        tmp (File/createTempFile "lein" "index")
-        tmp-stream (FileOutputStream. tmp)
-        progress (atom 0)
-        callback (fn [{:keys [percentage]}]
-                   (when (and main/*info* (not= percentage @progress))
-                     (reset! progress percentage)
-                     (print (str "\r" percentage "%..."))
-                     (flush)))]
-    (try (if (= "file" (.getProtocol index-url))
-           (io/copy (.openStream index-url) tmp-stream)
-           (download index-url tmp-stream :callback callback))
-         (unzip tmp (index-location url))
-         (finally (.delete tmp))))
-  (main/info))
+;; TODO: add progress reporting back in
+(defn- http-resource-fetcher []
+  (let [base-url (promise)
+        stream (promise)]
+    (proxy [ResourceFetcher] []
+      ;; TODO: handle connect/disconnect properly
+      (connect [id url]
+        (deliver base-url url))
+      (disconnect []
+        (.close @stream))
+      (^java.io.InputStream retrieve [name]
+        (main/debug "Downloading" (str @base-url "/" name))
+        (let [s (:body (http/get (str @base-url "/" name)
+                                 {:throw-exceptions false :as :stream}))]
+          (deliver stream s)
+          s)))))
 
-(defn- download-needed? [[id {:keys [url]}]]
-  (not (.exists (index-location url))))
+(defn update-index [context]
+  (.fetchAndUpdateIndex (.lookup container IndexUpdater)
+                        (IndexUpdateRequest. context (http-resource-fetcher))))
 
-(defn ^:internal ensure-fresh-index [repository]
-  (try (when (download-needed? repository)
-         (download-index repository))
-       true
-       (catch java.io.IOException _
-         false)))
+(defn- refresh? [url project]
+  (if-not (:offline? project)
+    (< (.lastModified (io/file (index-location url) "timestamp"))
+       (- (System/currentTimeMillis) 86400000))))
 
-;;; Searching
+(defn- parse-result [result]
+  (let [group-id (.groupId result)
+        artifact-id (.artifactId result)
+        version (.version result)
+        classifier (.classifier result)
+        packaging (.packaging result)
+        name (if (= group-id artifact-id)
+               (symbol artifact-id)
+               (symbol group-id artifact-id))
+        classifier-opts (and classifier [:classifier classifier])
+        packaging-opts (if (not= "jar" packaging) [:packaging packaging])]
+    [(pr-str (into [name version] (concat classifier-opts packaging-opts)))
+     (or (.description result) "")]))
 
 (def ^:private page-size (:search-page-size (:user (user/profiles)) 25))
 
-(defn search-repository [[id {:keys [url]} :as repo] query page]
-  (if (ensure-fresh-index repo)
-    (let [location (.getAbsolutePath (index-location url))
-          fetch-count (* page page-size)
-          offset (* (dec page) page-size)
-          results (binding [clucy/*analyzer*
-                            (doto (PerFieldAnalyzerWrapper. (SimpleAnalyzer.))
-                              (.addAnalyzer "a" (KeywordAnalyzer.)))]
-                    (clucy/search (clucy/disk-index location)
-                                  query fetch-count :default-field :a))]
-      (with-meta (drop offset results) (meta results)))
-    (binding [*out* *err*]
-      (println "Warning: couldn't download index for" url))))
-
-(defn ^:internal parse-result [{:keys [u d]}]
-  (let [[group artifact version classifier] (.split u "\\|")
-        group (if (not= group artifact) group)
-        identifier [(symbol group artifact) (format "\"%s\"" version)]]
-    (if d
-      [identifier d]
-      [identifier])))
-
-(defn- print-results [[id] results page]
-  (when (seq results)
-    (println " == Results from" id "-" "Showing page" page "/"
-             (-> results meta :_total-hits (/ page-size) Math/ceil int) "total")
-    (doseq [result (map parse-result results)]
-      (apply println result))
+(defn- print-results [response page]
+  (when (seq response)
+    (println " == Showing page" page "/"
+             (-> (.getTotalHitsCount response) (/ page-size) Math/ceil int))
+    (doseq [[dep description] (map parse-result response)]
+      (println dep description))
     (println)))
+
+(defn search-repository [query contexts page]
+  (let [search-expression (UserInputSearchExpression. query)
+        ;; TODO: support querying other fields
+        artifact-id-query (.constructQuery indexer MAVEN/ARTIFACT_ID
+                                           search-expression)
+        request (doto (IteratorSearchRequest. artifact-id-query contexts)
+                  (.setStart (* (dec page) page-size))
+                  (.setCount page-size))]
+    (with-open [response (.searchIterator indexer request)]
+      (print-results response page))))
 
 (defn ^:no-project-needed search
   "Search remote maven repositories for matching jars.
@@ -128,6 +106,17 @@ matches or do more advanced queries such as this:
 Also accepts a second parameter for fetching successive pages."
   ([project query] (search project query 1))
   ([project query page]
-     (doseq [repo (:repositories project (:repositories project/defaults))
-             :let [page (Integer. page)]]
-       (print-results repo (search-repository repo query page) page))))
+     ;; Maven's indexer requires over 1GB of free space for a <100M index
+     (let [orig-tmp (System/getProperty "java.io.tmpdir")
+           new-tmp (io/file (user/leiningen-home) "indices" "tmp")
+           contexts (doall (map add-context (:repositories project)))]
+       (try
+         (.mkdirs new-tmp)
+         (System/setProperty "java.io.tmpdir" (str new-tmp))
+         (doseq [context contexts]
+           (when (refresh? (.getRepositoryUrl context) project)
+             (update-index context)))         
+         (search-repository query contexts (Integer. page))
+         (finally
+           (doall (map remove-context contexts))
+           (System/setProperty "java.io.tmpdir" orig-tmp))))))

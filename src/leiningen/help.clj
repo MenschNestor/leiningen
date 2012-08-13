@@ -2,16 +2,11 @@
   "Display a list of tasks or help for a given task."
   (:require [clojure.string :as string]
             [clojure.java.io :as io]
-            [bultitude.core :as b]
             [leiningen.core.main :as main]))
 
-(defn tasks
-  "Return a list of symbols naming all visible tasks."
-  []
-  (->> (b/namespaces-on-classpath :prefix "leiningen")
-       (filter #(re-find #"^leiningen\.(?!core|main|util)[^\.]+$" (name %)))
-       (distinct)
-       (sort)))
+(def ^{:private true
+       :doc "Width of task name column in list of tasks produced by help task."}
+  task-name-column-width 20)
 
 (defn- get-arglists [task]
   (for [args (or (:help-arglists (meta task)) (:arglists (meta task)))]
@@ -57,7 +52,7 @@
          [nil nil])))
 
 (defn- static-help [name]
-  (when-let [resource (io/resource (format "leiningen/help/%s" name))]
+  (if-let [resource (io/resource (format "leiningen/help/%s" name))]
     (slurp resource)))
 
 (defn help-for
@@ -71,7 +66,7 @@
                     (:doc (meta task))
                     (:doc (meta (find-ns task-ns))))
                 (subtask-help-for task-ns task)
-                (when (some seq (get-arglists task))
+                (if (some seq (get-arglists task))
                   (str "\n\nArguments: " (pr-str (get-arglists task))))))
          (format "Task: '%s' not found" task-name))))
   ([project task-name]
@@ -83,7 +78,8 @@
              ns-summary (:doc (meta (find-ns (doto task-ns require))))
              first-line (first (.split (help-for {} task-name) "\n"))]
          ;; Use first line of task docstring if ns metadata isn't present
-         (str task-name (apply str (repeat (- 13 (count task-name)) " "))
+         (str task-name (apply str (repeat (- task-name-column-width
+                                              (count task-name)) " "))
               (or ns-summary first-line)))
        (catch Throwable e
          (binding [*out* *err*]
@@ -98,7 +94,7 @@ deploying and copying info."
   ([project]
      (println "Leiningen is a tool for working with Clojure projects.\n")
      (println "Several tasks are available:")
-     (doseq [task-ns (tasks)]
+     (doseq [task-ns (main/tasks)]
        (println (help-summary-for task-ns)))
      (println "\nRun lein help $TASK for details.")
      (if-let [aliases (:aliases project)]

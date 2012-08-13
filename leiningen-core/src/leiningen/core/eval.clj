@@ -7,8 +7,7 @@
             [leiningen.core.user :as user]
             [leiningen.core.project :as project]
             [leiningen.core.main :as main]
-            [leiningen.core.classpath :as classpath])
-  (:import (org.sonatype.aether.resolution DependencyResolutionException)))
+            [leiningen.core.classpath :as classpath]))
 
 ;; # OS detection
 
@@ -40,7 +39,9 @@
           "NUL"
           "/dev/null")))
 
-(defn prep-tasks
+;; # Preparing for eval-in-project
+
+(defn run-prep-tasks
   "Execute all the prep-tasks. A task can either be a string, or a
   vector if it takes arguments. see :prep-tasks in sample.project.clj
   for examples"
@@ -50,19 +51,11 @@
           task-name (main/lookup-alias task-name project)]
       (main/apply-task task-name (dissoc project :prep-tasks) task-args))))
 
-;; # Form Wrangling
-
 (defn prep [project]
   ;; This must exist before the project is launched.
   (.mkdirs (io/file (:compile-path project "/tmp")))
-  (try (classpath/get-classpath project)
-       (catch DependencyResolutionException e
-         (main/info (.getMessage e))
-         (main/info "Check :dependencies and :repositories for typos.")
-         (main/info "It's possible the specified jar is not in any repository.")
-         (main/info "If so, see \"Free-floating Jars\" under http://j.mp/repeatability")
-         (main/abort)))
-  (prep-tasks project)
+  (classpath/resolve-dependencies :dependencies project)
+  (run-prep-tasks project)
   (.mkdirs (io/file (:compile-path project "/tmp")))
   (when-let [prepped (:prepped (meta project))]
     (deliver prepped true)))
@@ -72,7 +65,7 @@
 (defn native-arch-path
   "Path to the os/arch-specific directory containing native libs."
   [project]
-  (when (and (get-os) (get-arch))
+  (if (and (get-os) (get-arch))
     (io/file (:native-path project) (name (get-os)) (name (get-arch)))))
 
 (defn- as-str [x]
@@ -92,8 +85,8 @@
           (str (last args) " " x))))
 
 (defn ^{:internal true} get-jvm-opts-from-env [env-opts]
-  (when (seq env-opts)
-    (reduce join-broken-arg [] (.split env-opts " "))))
+  (and (seq env-opts)
+       (reduce join-broken-arg [] (.split env-opts " "))))
 
 (defn- get-jvm-args
   "Calculate command-line arguments for launching java subprocess."
@@ -105,11 +98,12 @@
                          (str (:name project) ".version") (:version project)
                          :clojure.debug (boolean (or (System/getenv "DEBUG")
                                                      (:debug project)))})
-      ~@(when (and native-arch-path (.exists native-arch-path))
+      ~@(if (and native-arch-path (.exists native-arch-path))
           [(d-property [:java.library.path native-arch-path])])
-      ~@(when-let [{:keys [host port]} (classpath/get-proxy-settings)]
+      ~@(if-let [{:keys [host port non-proxy-hosts]} (classpath/get-proxy-settings)]
           [(d-property [:http.proxyHost host])
-           (d-property [:http.proxyPort port])]))))
+           (d-property [:http.proxyPort port])
+	   (d-property [:http.nonProxyHosts non-proxy-hosts])]))))
 
 (defn- pump [reader out]
   (let [buffer (make-array Character/TYPE 1000)]
@@ -162,6 +156,8 @@
     ~@(get-jvm-args project)
     "clojure.main" "-e" ~(form-string form)))
 
+;; # eval-in multimethod
+
 (defmulti eval-in
   "Evaluate the given from in either a subprocess or the leiningen process."
   (fn [project _] (:eval-in project)) :default :subprocess)
@@ -198,9 +194,9 @@
   (eval form))
 
 (defn eval-in-project
-  "Executes form in an isolated classloader with the classpath and compile path
-  set correctly for the project. If the form depends on any requires, put them
-  in the init arg to avoid the Gilardi Scenario: http://technomancy.us/143"
+  "Executes form in isolation with the classpath and compile path set correctly
+  for the project. If the form depends on any requires, put them in the init arg
+  to avoid the Gilardi Scenario: http://technomancy.us/143"
   ([project form init]
      (prep project)
      (eval-in project

@@ -3,7 +3,8 @@
             [leiningen.core.project :as project]
             [leiningen.core.classpath :as classpath]
             [clojure.java.io :as io]
-            [clojure.string :as string]))
+            [clojure.string :as string]
+            [bultitude.core :as b]))
 
 (def aliases {"-h" "help", "-help" "help", "--help" "help", "-?" "help",
               "-v" "version", "-version" "version", "--version" "version",
@@ -19,7 +20,8 @@
 (defn lookup-alias [task-name project]
   (or (aliases task-name)
       (get (:aliases project) task-name)
-      task-name "help"))
+      task-name
+      "help"))
 
 (defn task-args [args project]
   (if (= "help" (aliases (second args)))
@@ -50,14 +52,59 @@
   ([] (exit 0)))
 
 (defn abort
-  "Print msg to standard err and exit with a value of 1."
+  "Print msg to standard err and exit with a value of 1.
+  Will not directly exit under some circumstances; see `*exit-process?*`."
   [& msg]
   (binding [*out* *err*]
-    (apply println msg)
+    (when (seq msg)
+      (apply println msg))
     (exit 1)))
 
+(defn distance [s t]
+  (letfn [(iters [n f start]
+            (take n (map second
+                         (iterate f start))))]
+    (let [m (inc (count s)), n (inc (count t))
+          first-row (vec (range m))
+          matrix (iters n (fn [[j row]]
+                            [(inc j)
+                             (vec (iters m (fn [[i col]]
+                                             [(inc i)
+                                              (if (= (nth s i)
+                                                     (nth t j))
+                                                (get row i)
+                                                (inc (min (get row i)
+                                                          (get row (inc i))
+                                                          col)))])
+                                         [0 (inc j)]))])
+                        [0 first-row])]
+      (last (last matrix)))))
+
+(defn tasks
+  "Return a list of symbols naming all visible tasks."
+  []
+  (->> (b/namespaces-on-classpath :prefix "leiningen")
+       (filter #(re-find #"^leiningen\.(?!core|main|util)[^\.]+$" (name %)))
+       (distinct)
+       (sort)))
+
+(defn suggestions [task]
+  (let [suggestions (into {} (for [t (tasks)
+                                   :let [n (.replaceAll (name t)
+                                                        "leiningen." "")]]
+                               [n (distance n task)]))
+        min (apply min (vals suggestions))]
+    (when (<= min 4)
+      (map first (filter #(= min (second %)) suggestions)))))
+
 (defn ^:no-project-needed task-not-found [task & _]
-  (abort (str task " is not a task. Use \"lein help\" to list all tasks.")))
+  (println (str "'" task "' is not a task. See 'lein help'."))
+  (when-let [suggestions (suggestions task)]
+    (println)
+    (println "Did you mean this?")
+    (doseq [suggestion suggestions]
+      (println "        " suggestion)))
+  (abort))
 
 ;; TODO: got to be a cleaner way to do this, right?
 (defn- drop-partial-args [pargs]
@@ -98,7 +145,14 @@
     (when-not (matching-arity? task args)
       (abort "Wrong number of arguments to" task-name "task."
              "\nExpected" (rest (:arglists (meta task)))))
-    (apply task project args)))
+    (let [value (apply task project args)]
+      ;; TODO: remove this for final release
+      (when (and value (number? value))
+        (println "WARNING: using numeric exit values in plugins is deprecated.")
+        (println "Plugins should use leiningen.core.main/abort instead.")
+        (println "Support for this will be removed before the stable 2.0.0 release.")
+        (abort task-name "failed."))
+      value)))
 
 (defn leiningen-version []
   (System/getenv "LEIN_VERSION"))
@@ -138,35 +192,32 @@ or by executing \"lein upgrade\". ")
           (System/getProperty "os.name") (System/getProperty "os.version")
           (System/getProperty "os.arch")))
 
-(defn- http-settings []
+(defn- configure-http []
   "Set Java system properties controlling HTTP request behavior."
   (System/setProperty "aether.connector.userAgent" (user-agent))
-  (when-let [{:keys [host port]} (classpath/get-proxy-settings)]
+  (when-let [{:keys [host port non-proxy-hosts]} (classpath/get-proxy-settings)]
     (System/setProperty "http.proxyHost" host)
-    (System/setProperty "http.proxyPort" (str port))))
+    (System/setProperty "http.proxyPort" (str port))
+    (when non-proxy-hosts (System/setProperty "http.nonProxyHosts" non-proxy-hosts))))
 
 (defn -main
   "Run a task or comma-separated list of tasks."
   [& raw-args]
-  (user/init)
-  (let [project (if (.exists (io/file "project.clj"))
-                  (project/init-project (project/read)))
-        [task-name args] (task-args raw-args project)]
-    (when (:min-lein-version project)
-      (verify-min-version project))
-    (http-settings)
-    (when-not project
-      (let [default-project (project/merge-profiles project/defaults [:user :default])]
-        (project/load-certificates default-project)
-        (project/load-plugins default-project)))
-    (try (warn-chaining task-name args)
-         (apply-task task-name project args)
-         (catch Exception e
-           (when-let [[_ code] (and (.getMessage e)
-                                    (re-find #"Process exited with (\d+)"
-                                             (.getMessage e)))]
-             (exit (Integer. code)))
-           (when-not (re-find #"Suppressed exit:" (or (.getMessage e) ""))
-             (.printStackTrace e))
-           (exit 1))))
+  (try
+    (user/init)
+    (let [project (if (.exists (io/file "project.clj"))
+                    (project/init-project (project/read)))
+          [task-name args] (task-args raw-args project)]
+      (when (:min-lein-version project)
+        (verify-min-version project))
+      (configure-http)
+      (when-not project
+        (let [default-project (project/merge-profiles project/defaults
+                                                      [:user :default])]
+          (project/load-certificates default-project)
+          (project/load-plugins default-project)))
+      (warn-chaining task-name args)
+      (apply-task task-name project args))
+    (catch Exception e
+      (exit (:exit-code (ex-data e) 1))))
   (exit 0))

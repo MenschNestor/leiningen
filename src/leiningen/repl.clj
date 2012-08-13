@@ -13,35 +13,48 @@
             [leiningen.core.classpath :as classpath]
             [leiningen.core.main :as main]))
 
-(def profile {:dependencies '[[org.clojure/tools.nrepl "0.2.0-beta7"
+(def profile {:dependencies '[[org.clojure/tools.nrepl "0.2.0-beta8"
                                :exclusions [org.clojure/clojure]]
                               [clojure-complete "0.2.1"
-                               :exclusions [org.clojure/clojure]]
-                              [org.thnetos/cd-client "0.3.4"
                                :exclusions [org.clojure/clojure]]]})
 
-(def trampoline-profile {:dependencies '[[reply "0.1.0-beta9"
+(def reply-profile {:dependencies '[[org.thnetos/cd-client "0.3.4"
+                                     :exclusions [org.clojure/clojure]]]})
+
+(def trampoline-profile {:dependencies '[[reply "0.1.0-beta10"
                                          :exclusions [org.clojure/clojure]]]})
 
-(defn- start-server [project port ack-port]
+(defn- handler-for [project]
+  `(-> ~(:nrepl-handler project '(clojure.tools.nrepl.server/default-handler))
+       ~@(map list (:nrepl-middleware project))))
+
+(defn- init-requires [project & nses]
+  (let [defaults '[clojure.tools.nrepl.server complete.core]
+        nrepl-syms (->> (cons (:nrepl-handler project)
+                              (:nrepl-middleware project))
+                     (filter symbol?)
+                     (map namespace)
+                     (remove nil?)
+                     (map symbol))]
+    (for [n (concat defaults nrepl-syms nses)]
+      (list 'quote n))))
+
+(defn- start-server [project host port ack-port & [headless?]]
   (let [server-starting-form
-          `(let [server# (clojure.tools.nrepl.server/start-server
-                           :port ~port :ack-port ~ack-port)]
-            (println "nREPL server started on port"
-              (-> server# deref :ss .getLocalPort))
-            (while true (Thread/sleep Long/MAX_VALUE)))]
+        `(let [server# (clojure.tools.nrepl.server/start-server
+                        :bind ~host :port ~port :ack-port ~ack-port
+                        :handler ~(handler-for project))
+               port# (-> server# deref :ss .getLocalPort)]
+           (println "nREPL server started on port" port#)
+           (spit ~(str (io/file (:target-path project) "repl-port")) port#)
+           @(promise))]
     (if project
       (eval/eval-in-project
-       ;; TODO: don't merge profile for a headless server
-       (project/merge-profiles project [(:repl (user/profiles) profile)])
-        server-starting-form
-        '(do (require 'clojure.tools.nrepl.server)
-             (require 'complete.core)))
+       (project/merge-profiles project [(:repl (user/profiles) profile)
+                                        (if-not headless? reply-profile)])
+       server-starting-form
+       `(require ~@(init-requires project)))
       (eval server-starting-form))))
-
-(def lein-repl-server
-  (delay (nrepl.server/start-server
-           :handler (nrepl.ack/handle-ack nrepl.server/unknown-op))))
 
 (defn- repl-port [project]
   (Integer. (or (System/getenv "LEIN_REPL_PORT")
@@ -49,11 +62,17 @@
                 0)))
 
 (defn- repl-host [project]
-  (or (System/getenv "LEIN_REPL_PORT")
-      (-> project :repl-options :host)))
+  (or (System/getenv "LEIN_REPL_HOST")
+      (-> project :repl-options :host)
+      "localhost"))
+
+(def lein-repl-server
+  (delay (nrepl.server/start-server
+          :host (repl-host nil)
+          :handler (nrepl.ack/handle-ack nrepl.server/unknown-op))))
 
 (defn- ack-port [project]
-  (when-let [p (or (System/getenv "LEIN_REPL_ACK_PORT")
+  (if-let [p (or (System/getenv "LEIN_REPL_ACK_PORT")
                    (-> project :repl-options :ack-port))]
     (Integer. p)))
 
@@ -78,6 +97,14 @@
       {:prompt :custom-prompt
        :init :custom-init})))
 
+(defn- trampoline-repl [project]
+  (let [options (options-for-reply project :port (repl-port project))
+        profiles [(:repl (user/profiles) profile) trampoline-profile]]
+    (eval/eval-in-project
+     (project/merge-profiles project profiles)
+     `(reply.main/launch-nrepl ~options)
+     `(require ~@(init-requires project 'reply.main)))))
+
 (defn ^:no-project-needed repl
   "Start a repl session either with the current project or standalone.
 
@@ -99,35 +126,26 @@ and port."
   ([] (repl nil))
   ([project]
   (if trampoline/*trampoline?*
-    (let [options (options-for-reply project :port (repl-port project))
-          profiles [(:repl (user/profiles) profile) trampoline-profile]]
-      (eval/eval-in-project
-       (project/merge-profiles project profiles)
-        `(reply.main/launch-nrepl ~options)
-        '(do (require 'reply.main)
-             (require 'clojure.tools.nrepl.server)
-             (require 'complete.core))))
-    (do
-     (nrepl.ack/reset-ack-port!)
-     (let [prepped (promise)]
-       (.start
-        (Thread.
-         (bound-fn []
-           (start-server (and project (vary-meta project assoc
-                                                 :prepped prepped))
-                         (repl-port project)
-                         (-> @lein-repl-server deref :ss .getLocalPort)))))
-       (and project @prepped)
-       (if-let [repl-port (nrepl.ack/wait-for-ack (or (-> project
-                                                          :repl-options
-                                                          :timeout)
-                                                      30000))]
-         (reply/launch-nrepl (options-for-reply project :attach repl-port))
-         (println "REPL server launch timed out."))))))
+    (trampoline-repl project)
+    (let [prepped (promise)]
+      (nrepl.ack/reset-ack-port!)
+      (.start
+       (Thread.
+        (bound-fn []
+          (start-server (and project (vary-meta project assoc :prepped prepped))
+                        (repl-host project) (repl-port project)
+                        (-> @lein-repl-server deref :ss .getLocalPort)))))
+      (when project @prepped)
+      (if-let [repl-port (nrepl.ack/wait-for-ack (-> project
+                                                     :repl-options
+                                                     (:timeout 30000)))]
+        (reply/launch-nrepl (options-for-reply project :attach repl-port))
+        (println "REPL server launch timed out.")))))
   ([project flag & opts]
    (case flag
-     ":headless" (do (start-server project
-                       (repl-port project)
-                       (ack-port project)))
-     ":connect" (reply/launch-nrepl {:attach (first opts)})
+     ":headless" (start-server project
+                               (repl-host project) (repl-port project)
+                               (ack-port project) :headless)
+     ":connect" (do (require 'cemerick.drawbridge.client)
+                    (reply/launch-nrepl {:attach (first opts)}))
      (main/abort "Unrecognized flag:" flag))))

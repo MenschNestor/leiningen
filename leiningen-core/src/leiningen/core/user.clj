@@ -26,13 +26,16 @@
 (defn profiles
   "Load profiles.clj from your Leiningen home if present."
   []
-  (utils/read-file (io/file (leiningen-home) "profiles.clj")))
+  (try (utils/read-file (io/file (leiningen-home) "profiles.clj"))
+       (catch Exception e
+         (println "Error reading profiles.clj from" (leiningen-home))
+         (println (.getMessage e)))))
 
 (defn credentials-fn
   "Decrypt map from credentials.clj.gpg in Leiningen home if present."
   ([] (let [cred-file (io/file (leiningen-home) "credentials.clj.gpg")]
-        (when (.exists cred-file)
-         (credentials-fn cred-file))))
+        (if (.exists cred-file)
+          (credentials-fn cred-file))))
   ([file]
      (let [{:keys [out err exit]} (try (shell/sh "gpg" "--batch" "--quiet"
                                                  "--decrypt" (str file))

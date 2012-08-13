@@ -6,7 +6,8 @@
             [clojure.string :as str]
             [leiningen.core.user :as user])
   (:import (java.util.jar JarFile)
-           (java.net URL)))
+           (java.net URL)
+           (org.sonatype.aether.resolution DependencyResolutionException)))
 
 ;; Basically just for re-throwing a more comprehensible error.
 (defn- read-dependency-project [root dep]
@@ -80,7 +81,7 @@
 (defn get-proxy-settings
   "Returns a map of the JVM proxy settings"
   []
-  (when-let [proxy (System/getenv "http_proxy")]
+  (if-let [proxy (System/getenv "http_proxy")]
     (let [url (try (URL. proxy)
                    (catch java.net.MalformedURLException _
                      (URL. (str "http://" proxy))))
@@ -89,7 +90,8 @@
       {:host (.getHost url)
        :port (.getPort url)
        :username username
-       :password password})))
+       :password password
+       :non-proxy-hosts (System/getenv "http_no_proxy")})))
 
 (defn- update-policies [update checksum [repo-name opts]]
   [repo-name (merge {:update (or update :daily)
@@ -116,6 +118,12 @@
      :mirrors mirrors
      :transfer-listener :stdout
      :proxy (get-proxy-settings))
+    (catch DependencyResolutionException e
+      (binding [*out* *err*]
+        (println "Check :dependencies and :repositories for typos.")
+        (println "It's possible the specified jar is not in any repository.")
+        (println "If so, see \"Free-floating Jars\" under http://j.mp/repeatability"))
+      (throw (ex-info "Could not resolve dependencies" {:exit-code 1})))
     (catch Exception e
       (if (and (instance? java.net.UnknownHostException (root-cause e))
                (not offline?))

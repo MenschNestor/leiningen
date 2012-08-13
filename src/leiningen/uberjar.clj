@@ -11,7 +11,7 @@
            (java.io File FileOutputStream PrintWriter)))
 
 (defn read-components [zipfile]
-  (when-let [entry (.getEntry zipfile "META-INF/plexus/components.xml")]
+  (if-let [entry (.getEntry zipfile "META-INF/plexus/components.xml")]
     (->> (zip/xml-zip (xml/parse (.getInputStream zipfile entry)))
          zip/children
          (filter #(= (:tag %) :components))
@@ -83,7 +83,8 @@ as well as defining a -main function."
                               concat (:uberjar-inclusions project))]
        (try (jar/jar project)
             (catch Exception e
-              (main/abort "Uberjar aborting because jar/compilation failed:"))))
+              (main/abort "Uberjar aborting because jar/compilation failed:"
+                          (.getMessage e)))))
      (let [standalone-filename (jar/get-jar-filename project :uberjar)]
          (with-open [out (-> standalone-filename
                              (FileOutputStream.)

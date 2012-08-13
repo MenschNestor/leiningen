@@ -67,9 +67,12 @@
   ;; the same way as command-line arguments to the lein command. If
   ;; the alias points to a vector, it uses partial application. For
   ;; example, "lein with-magic run -m hi.core" would be equivalent to
-  ;; "lein assoc :magic true run -m hi.core".
+  ;; "lein assoc :magic true run -m hi.core". Remember, commas are not
+  ;; considered to be special by argument parsers, they're just part
+  ;; of the preceding argument.
   :aliases {"launch" "run"
-            "dumbrepl" ["trampoline" "run" "-m" "clojure.main/main"]}
+            "dumbrepl" ["trampoline" "run" "-m" "clojure.main/main"]
+            "test!" ["do" "clean," "deps," "test"]}
   ;; Normally Leiningen runs the javac and compile tasks before
   ;; calling any eval-in-project code, but you can override this with
   ;; the :prep-tasks key to do other things like compile protocol buffers.
@@ -86,19 +89,29 @@
                          ~(fn [p] (str (:root p) "/lib/dev/*"))]
   ;; Load these namespaces on startup to pick up hooks from them.
   :hooks [leiningen.hooks.difftest]
-  ;; Predicates to determine whether to run a test or not. See tutorial.
-  :test-selectors {:default (fn [t] (not (or (:integration v) (:regression v))))
+  ;; Predicates to determine whether to run a test or not, take test metadata
+  ;; as argument. See Leiningen tutorial for more information.
+  :test-selectors {:default (fn [m] (not (or (:integration m) (:regression m))))
                    :integration :integration
                    :regression :regression}
   ;; These namespaces will be AOT-compiled. Needed for gen-class and
   ;; other Java interop functionality. Put a regex here to compile all
   ;; namespaces whose names match.
   :aot [org.example.sample]
-  ;; The -main function in this namespace will be run at launch if you
-  ;; create an uberjar. Set :skip-aot metadata on this symbol to use
-  ;; it for other things like the run task or shell wrappers without
-  ;; bringing in AOT if you don't need an executable uberjar.
-  :main org.example.sample
+  ;; The -main function in this namespace will be run at launch (either via `lein run` or if you
+  ;; create an uberjar). It should be variadic, like so:
+  ;;
+  ;; (ns my.service.runner
+  ;;   (:gen-class))
+  ;;
+  ;; (defn -main
+  ;;   "Application entry point"
+  ;;   [& args]
+  ;;   (comment Do app initialization here))
+  ;;
+  ;; Set :skip-aot metadata on this symbol to use it for other things like the
+  ;; run task without triggering AOT if you don't need an executable uberjar.
+  :main my.service.runner
   ;; Options to change the way the REPL behaves
   :repl-options {;; Specify the string to print when prompting for input.
                  ;; defaults to something like (fn [ns] (str *ns* "=> "))
@@ -117,6 +130,14 @@
                  ;; increase this to wait longer before timing out.
                  ;; Defaults to 30000 (30 seconds)
                  :timeout 40000}
+  ;; Use a different server-side nREPL handler.
+  :nrepl-handler (clojure.tools.nrepl.server/default-handler)
+  ;; Add server-side middleware to nREPL stack.
+  :nrepl-middleware [my.nrepl.thing/wrap-amazingness
+                     (fn [handler]
+                       (fn [& args]
+                         (prn :middle args)
+                         (apply handler args)))]
   ;; Forms to prepend to every form that is evaluated inside your project.
   ;; Allows working around the Gilardi Scenario: http://technomancy.us/143
   :injections [(require 'clojure.pprint)]
@@ -156,6 +177,7 @@
   ;; apply for all :repositories. Usually you will not set :update
   ;; directly but apply the "update" profile instead.
   :update :always
+  :checksum :fail
   ;; the deploy task will give preference to repositories specified in
   ;; :deploy-repositories, and repos listed there will not be used for
   ;; dependency resolution.
@@ -230,7 +252,22 @@
   ;; Extensions here will be propagated to the pom but not used by Leiningen.
   :extensions [[org.apache.maven.wagon/wagon-webdav "1.0-beta-2"]
                [foo/bar-baz "1.0"]]
-  ;; If :scm is set, all key/value pairs appear exactly as configured, otherwise
-  ;; Leiningen will try to use information from a .git directory if it is present.
-  ;; The only purpose is the generation of the <scm> tag in pom.xml.
-  :scm {:name "git" :tag "098afd745bcd" :url "http://127.0.0.1/git/my-project"})
+  ;; Include <scm> tag in generated pom.xml file. All key/value pairs
+  ;; appear exactly as configured. If absent, Leiningen will try to
+  ;; use information from a .git directory.
+  :scm {:name "git" :tag "098afd745bcd" :url "http://127.0.0.1/git/my-project"}
+
+  ;; include arbitrary xml in generated pom.xml file
+  :pom-addition [:developers [:developer [:name "My Name"]]]
+  )
+
+;;; Environment Variables used by Leiningen
+
+;; JAVA_CMD - executable to use for java(1)
+;; JVM_OPTS - extra options to pass to the java command
+;; DEBUG - increased verbosity
+;; LEIN_SNAPSHOTS_IN_RELEASE - allow releases to depend on snapshots
+;; LEIN_REPL_HOST - interface on which to connect to nREPL server
+;; LEIN_REPL_PORT - port on which to start or connect to nREPL server
+;; http_proxy - host and port to proxy HTTP connections through
+;; http_no_proxy - pipe-separated list of hosts which may be accessed directly
