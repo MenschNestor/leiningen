@@ -51,14 +51,17 @@
           task-name (main/lookup-alias task-name project)]
       (main/apply-task task-name (dissoc project :prep-tasks) task-args))))
 
+;; Some tasks need to wait till the project is fully prepped before continuing.
+(defonce prep-blocker (atom (promise)))
+
 (defn prep [project]
   ;; This must exist before the project is launched.
   (.mkdirs (io/file (:compile-path project "/tmp")))
   (classpath/resolve-dependencies :dependencies project)
   (run-prep-tasks project)
   (.mkdirs (io/file (:compile-path project "/tmp")))
-  (when-let [prepped (:prepped (meta project))]
-    (deliver prepped true)))
+  (deliver @prep-blocker true)
+  (reset! prep-blocker (promise)))
 
 ;; # Subprocess stuff
 
@@ -96,6 +99,7 @@
       ~@(:jvm-opts project)
       ~@(map d-property {:clojure.compile.path (:compile-path project)
                          (str (:name project) ".version") (:version project)
+                         :file.encoding (or (System/getProperty "file.encoding") "UTF-8")
                          :clojure.debug (boolean (or (System/getenv "DEBUG")
                                                      (:debug project)))})
       ~@(if (and native-arch-path (.exists native-arch-path))
@@ -137,8 +141,8 @@
 ;; http://bit.ly/9c6biv This isn't perfect, but works for what's
 ;; currently being passed; see http://www.perlmonks.org/?node_id=300286
 ;; for some of the landmines involved in doing it properly
-(defn- form-string [form]
-  (if (= (get-os) :windows)
+(defn- form-string [form eval-in]
+  (if (and (= (get-os) :windows) (not= :trampoline eval-in))
     (pr-str (pr-str form))
     (pr-str form)))
 
@@ -154,13 +158,15 @@
   `(~(or (:java-cmd project) (System/getenv "JAVA_CMD") "java")
     ~@(classpath-arg project)
     ~@(get-jvm-args project)
-    "clojure.main" "-e" ~(form-string form)))
+    "clojure.main" "-e" ~(form-string form (:eval-in project))))
 
 ;; # eval-in multimethod
 
 (defmulti eval-in
   "Evaluate the given from in either a subprocess or the leiningen process."
-  (fn [project _] (:eval-in project)) :default :subprocess)
+  ;; Force it to be a keyword so that we can accept symbols too. That
+  ;; way ^:replace and ^:displace metadata can be applied.
+  (fn [project _] (keyword (name (:eval-in project :subprocess)))))
 
 (defmethod eval-in :subprocess [project form]
   (binding [*dir* (:root project)]
@@ -168,17 +174,31 @@
       (when (pos? exit-code)
         (throw (ex-info "Subprocess failed" {:exit-code exit-code}))))))
 
+(defonce trampoline-forms (atom []))
+(defonce trampoline-deps (atom []))
+
 (defmethod eval-in :trampoline [project form]
-  (swap! (:trampoline-forms (meta project)) conj form))
+  (swap! trampoline-forms conj form)
+  (swap! trampoline-deps conj (:dependencies project)))
 
 (defmethod eval-in :classloader [project form]
+  (when-let [classpath (map io/file (classpath/ext-classpath project))]
+    (cl/wrap-ext-classloader classpath))
   (let [classpath   (map io/file (classpath/get-classpath project))
         classloader (cl/classlojure classpath)]
     (doseq [opt (get-jvm-args project)
             :when (.startsWith opt "-D")
             :let [[_ k v] (re-find #"^-D(.*?)=(.*)$" opt)]]
-      (System/setProperty k v))
-    (cl/eval-in classloader form)))
+      (if (= k "java.library.path")
+        (cl/alter-java-library-path!
+         (constantly (string/split v (re-pattern java.io.File/pathSeparator))))
+        (System/setProperty k v)))
+    (try (cl/eval-in classloader form)
+         (catch Exception e
+           (println (str "Error evaluating in classloader: "
+                         (class e) ":" (.getMessage e)))
+           (.printStackTrace e)
+           (throw (ex-info "Classloader eval failed" {:exit-code 1}))))))
 
 (defmethod eval-in :leiningen [project form]
   (when (:debug project)

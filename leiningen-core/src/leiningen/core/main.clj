@@ -2,6 +2,7 @@
   (:require [leiningen.core.user :as user]
             [leiningen.core.project :as project]
             [leiningen.core.classpath :as classpath]
+            [leiningen.core.utils :as utils]
             [clojure.java.io :as io]
             [clojure.string :as string]
             [bultitude.core :as b]))
@@ -116,18 +117,12 @@
 
 (defn resolve-task
   ([task not-found]
-     (let [[task & pargs] (if (coll? task) task [task])
-           task-ns (symbol (str "leiningen." task))]
-       (try
-         (when-not (find-ns task-ns)
-           (require task-ns))
-         (if-let [task-var (ns-resolve task-ns (symbol task))]
-           (with-meta
-             (fn [project & args] (apply task-var project (concat pargs args)))
-             (update-in (meta task-var) [:arglists] (drop-partial-args pargs)))
-           (not-found task))
-         (catch java.io.FileNotFoundException e
-           (not-found task)))))
+     (let [[task & pargs] (if (coll? task) task [task])]
+       (if-let [task-var (utils/require-resolve (str "leiningen." task) task)]
+         (with-meta
+           (fn [project & args] (apply task-var project (concat pargs args)))
+           (update-in (meta task-var) [:arglists] (drop-partial-args pargs)))
+         (not-found task))))
   ([task] (resolve-task task #'task-not-found)))
 
 (defn ^:internal matching-arity? [task args]
@@ -139,7 +134,10 @@
         (:arglists (meta task))))
 
 (defn apply-task [task-name project args]
-  (let [task (resolve-task task-name)]
+  (let [[task-alias] (for [[k v] (:aliases project) :when (= v task-name)] k)
+        project (and project (update-in project [:aliases] (fnil dissoc {})
+                                        (or task-alias task-name)))
+        task (resolve-task task-name)]
     (when-not (or project (:no-project-needed (meta task)))
       (abort "Couldn't find project.clj, which is needed for" task-name))
     (when-not (matching-arity? task args)
@@ -198,7 +196,11 @@ or by executing \"lein upgrade\". ")
   (when-let [{:keys [host port non-proxy-hosts]} (classpath/get-proxy-settings)]
     (System/setProperty "http.proxyHost" host)
     (System/setProperty "http.proxyPort" (str port))
-    (when non-proxy-hosts (System/setProperty "http.nonProxyHosts" non-proxy-hosts))))
+    (when non-proxy-hosts
+      (System/setProperty "http.nonProxyHosts" non-proxy-hosts)))
+  (when-let [{:keys [host port]} (classpath/get-proxy-settings "https_proxy")]
+    (System/setProperty "https.proxyHost" host)
+    (System/setProperty "https.proxyPort" (str port))))
 
 (defn -main
   "Run a task or comma-separated list of tasks."
@@ -212,12 +214,16 @@ or by executing \"lein upgrade\". ")
         (verify-min-version project))
       (configure-http)
       (when-not project
-        (let [default-project (project/merge-profiles project/defaults
-                                                      [:user :default])]
-          (project/load-certificates default-project)
-          (project/load-plugins default-project)))
+        ;; We don't use merge-profiles because we don't want to apply middleware
+        ;; since middleware won't be ready until plugins are loaded.
+        (let [dummy (project/init-profiles project/defaults [:base :user])]
+          (project/load-certificates dummy)
+          (project/load-plugins dummy)))
       (warn-chaining task-name args)
       (apply-task task-name project args))
     (catch Exception e
+      (if (or *debug* (not (:exit-code (ex-data e))))
+        (.printStackTrace e)
+        (println (.getMessage e)))
       (exit (:exit-code (ex-data e) 1))))
   (exit 0))

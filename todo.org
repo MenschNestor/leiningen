@@ -4,15 +4,18 @@ See also https://github.com/technomancy/leiningen/issues
 
 * For 2.0.0
 ** 2.0.0-final
-   - [ ] Recover from interrupted self-install (#719)
-   - [ ] Honor :local-repo in trampoline (#695)
-   - [ ] Improve speed of trampoline restarts (#573)
-   - [ ] Calculate trampoline classpath based on project at time of eval-in-project.
    - [ ] Reduce verbosity of Aether. (#610)
-   - [ ] Isolate target dir per profile (#468)
+   - [ ] Global offline flag. (#687)
    - [ ] Honor mirror for search indices (#281)
    - [ ] Allow search queries on any field. (#243)
    - [ ] Drop clojars snapshots from default repos (#241)
+   - look at http://nullprogram.com/blog/2011/11/06/ ?
+** 2.0.0-preview9
+   - [X] Fast trampolining
+   - [X] Latest newnew
+   - [X] Updated :eval-in :classloader
+   - [X] Vector for :repositories
+   - [X] Fix middleware
 ** 2.0.0-preview8
    - [X] Allow trampoline to work with chaining in do task (#665)
    - [X] Store repl port on filesystem (#682)
@@ -21,7 +24,7 @@ See also https://github.com/technomancy/leiningen/issues
    - [X] Search indices on Central have moved (#683)
    - [X] Better error messages on failed repl :connect (#723)
    - [X] Document key generation (#721)
-   - [-] Honor hooks/metadata in from plugins (#401)
+   - [X] Honor hooks/metadata in from plugins (#401)
 ** 2.0.0-preview7
    - [X] Address chaining issues in with-profile (#632)
    - [X] Address gpg agent issues (#615)

@@ -55,7 +55,8 @@
                       (str/join "+" (map name keys)))
         current-value (pr-str (map (juxt identity project) keys))
         old-value (and (.exists file) (slurp file))]
-    (when (and (:name project) (:target-path project) (not= current-value old-value))
+    (when (and (:name project) (:target-path project)
+               (not= current-value old-value))
       (apply f args)
       (.mkdirs (.getParentFile file))
       (spit file (doall current-value)))))
@@ -80,18 +81,19 @@
 
 (defn get-proxy-settings
   "Returns a map of the JVM proxy settings"
-  []
-  (if-let [proxy (System/getenv "http_proxy")]
-    (let [url (try (URL. proxy)
-                   (catch java.net.MalformedURLException _
-                     (URL. (str "http://" proxy))))
-          user-info (.getUserInfo url)
-          [username password] (and user-info (.split user-info ":"))]
-      {:host (.getHost url)
-       :port (.getPort url)
-       :username username
-       :password password
-       :non-proxy-hosts (System/getenv "http_no_proxy")})))
+  ([] (get-proxy-settings "http_proxy"))
+  ([key]
+     (if-let [proxy (System/getenv key)]
+       (let [url (try (URL. proxy)
+                      (catch java.net.MalformedURLException _
+                        (URL. (str "http://" proxy))))
+             user-info (.getUserInfo url)
+             [username password] (and user-info (.split user-info ":"))]
+         {:host (.getHost url)
+          :port (.getPort url)
+          :username username
+          :password password
+          :non-proxy-hosts (System/getenv "http_no_proxy")}))))
 
 (defn- update-policies [update checksum [repo-name opts]]
   [repo-name (merge {:update (or update :daily)
@@ -104,7 +106,7 @@
   [dependencies-key {:keys [repositories local-repo offline? update
                             checksum mirrors] :as project}
    & {:keys [add-classpath?]}]
-  {:pre [(every? vector? (project dependencies-key))]}
+  {:pre [(every? vector? (get project dependencies-key))]}
   (try
     ((if add-classpath?
        pomegranate/add-dependencies
@@ -114,9 +116,29 @@
      :repositories (->> repositories
                         (map add-repo-auth)
                         (map (partial update-policies update checksum)))
-     :coordinates (project dependencies-key)
+     :coordinates (get project dependencies-key)
      :mirrors mirrors
-     :transfer-listener :stdout
+     :transfer-listener
+     (bound-fn [e]
+       (let [{:keys [type resource error]} e]
+         (let [{:keys [repository name size]} resource]
+           (case type
+             :started
+             (println "Retrieving"
+                      name
+                      (if (neg? size)
+                        ""
+                        (format "(%sk)"
+                                (Math/round (double (max 1 (/ size 1024))))))
+                      "from"
+                      (or (first (first (filter #(= repository (:url (second %)))
+                                                repositories)))
+                          repository))
+             :failed
+             (if (and (= repository (:url (second (last repositories))))
+                      error)
+               (println "Failed to find" name))
+             nil))))
      :proxy (get-proxy-settings))
     (catch DependencyResolutionException e
       (binding [*out* *err*]
@@ -151,12 +173,28 @@
   "Returns a graph of the project's dependencies."
   [dependencies-key project]
   (aether/dependency-hierarchy
-   (project dependencies-key)
+   (get project dependencies-key)
    (get-dependencies dependencies-key project)))
 
 (defn- normalize-path [root path]
   (let [f (io/file path)]
     (.getAbsolutePath (if (.isAbsolute f) f (io/file root path)))))
+
+(defn ext-dependency?
+  "Should the given dependency be loaded in the extensions classloader?"
+  [dep]
+  (second
+   (some #(if (= :ext (first %)) dep)
+         (partition 2 dep))))
+
+(defn ext-classpath
+  "Classpath of the extensions dependencies in project as a list of strings."
+  [project]
+  (seq
+   (->> (filter ext-dependency? (:dependencies project))
+        (assoc project :dependencies)
+        (resolve-dependencies :dependencies)
+        (map (memfn getAbsolutePath)))))
 
 (defn get-classpath
   "Return a the classpath for project as a list of strings."

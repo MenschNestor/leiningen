@@ -1,7 +1,26 @@
 # Leiningen News -- history of user-visible changes
 
-## 2.0.0-preview8 / ???
+## 2.0.0-preview10 / 2012-08-25
 
+* Fix a bug where repositories wouldn't be checked running outside a project.
+* Make repl listen on 127.0.0.1 instead of localhost to address IPv6 issues.
+
+## 2.0.0-preview9 / 2012-08-24
+
+* Use :provided profile by default everywhere except uberjar. (Marshall Vandegrift)
+* Unify format for auto-loading middleware and hooks. (Justin Balthrop)
+* Allow more declarative :nrepl-middleware settings. (Chas Emerick)
+* Fix :eval-in :classloader for native dependencies. (Justin Balthrop)
+* Support project and user leinrc file for shell-level customization. (Justin Balthrop)
+* Cache trampoline commands for fast boot. Set $LEIN_FAST_TRAMPOLINE to enable.
+* Support setting HTTPS proxies.
+* Improved resilience when self-install is interrupted. (Bruce Adams)
+* Fix a bug where profile dependencies weren't honored in trampoline task.
+
+## 2.0.0-preview8 / 2012-08-16
+
+* Place SCM revision in pom.properties in jar files.
+* Allow middleware and hooks to be inferred from plugins. (Justin Balthrop)
 * Offer similar suggestions when no task is found for input. (Joe Gallo)
 * Support TERM=dumb in repl task. (Colin Jones)
 * Fix reader mismatches between repl client and server. (Colin Jones)
@@ -219,7 +238,7 @@
 * Improve Solaris support. (Donald Clark Jackson)
 * Fix curl error relating to missing $https_proxy. (Pirmin Fix)
 
-##  1.5.1 / 2011-04-12
+## 1.5.1 / 2011-04-12
 
 * Improve rlwrap quote support. (Ambrose Bonnaire-Sergeant)
 * Prevent ns load exceptions from halting help.

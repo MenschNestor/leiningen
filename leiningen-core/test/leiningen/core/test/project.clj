@@ -35,8 +35,8 @@
                                [stencil "0.2.0"]],
                :twelve 12 ; testing unquote
 
-               :repositories {"central" {:url "http://repo1.maven.org/maven2"}
-                              "clojars" {:url "https://clojars.org/repo/"}}})
+               :repositories [["central" {:url "http://repo1.maven.org/maven2/"}]
+                              ["clojars" {:url "https://clojars.org/repo/"}]]})
 
 (deftest test-read-project
   (let [actual (read (.getFile (io/resource "p1.clj")))]
@@ -82,22 +82,23 @@
                (merge-profiles [:blue :qa :tes])
                :resource-paths)))
     (is (= {:url "http://" :username "u" :password "p"}
-           (-> {:repositories {"foo" {:url "http://" :creds :gpg}}
+           (-> {:repositories [["foo" {:url "http://" :creds :gpg}]]
                 :profiles {:blue {:repositories {"foo"
                                                  ^:replace {:url "http://"
                                                             :username "u"
                                                             :password "p"}}}}}
                (merge-profiles [:blue :qa :tes])
                :repositories
-               (get "foo"))))))
+               last last)))))
 
+;; TODO
 (deftest test-merge-profile-deps
   (with-redefs [default-profiles test-profiles]
-    (let [cp (-> {:resource-paths ["resources"]
-                  :profiles {:dev {:dependencies
-                                   '[^:displace [org.thnetos/cd-client "0.3.0"]
-                                     [org.clojure/tools.nrepl "0.2.0-beta2"]]}}}
-                 (merge-profiles [:dev :repl])
+    (let [project {:resource-paths ["resources"]
+                   :profiles {:dev {:dependencies
+                                    '[^:displace [org.thnetos/cd-client "0.3.0"]
+                                      [org.clojure/tools.nrepl "0.2.0-beta2"]]}}}
+          cp (-> (merge-profiles project [:dev :repl])
                  (classpath/get-classpath))]
       (is (some (partial re-find #"nrepl-0.2.0-beta2") cp))
       (is (some (partial re-find #"cd-client-0.3.4") cp)))))
@@ -121,6 +122,27 @@
 (deftest test-middleware
   (is (= 7 (:seven (init-project (read (.getFile (io/resource "p2.clj"))))))))
 
+(deftest test-activate-middleware
+  (is (= ""
+         (with-out-str
+           (binding [*err* *out*]
+             (init-project (read (.getFile (io/resource "p3.clj")))))))))
+
+(deftest test-plugin-vars
+  (are [project hooks middleware] (= (list hooks middleware)
+                                     (map (partial plugin-vars project) [:hooks :middleware]))
+       {:plugins '[[lein-foo "1.2.3"]]}
+       '(lein-foo.plugin/hooks) '(lein-foo.plugin/middleware)
+
+       {:plugins '[[lein-foo "1.2.3" :hooks false]]}
+       '() '(lein-foo.plugin/middleware)
+
+       {:plugins '[[lein-foo "1.2.3" :middleware false]]}
+       '(lein-foo.plugin/hooks) '()
+
+       {:plugins '[[lein-foo "1.2.3" :hooks false :middleware false]]}
+       '() '()))
+
 (deftest test-add-profiles
   (let [expected-result {:dependencies [] :profiles {:a1 {:src-paths ["a1/"]}
                                                      :a2 {:src-paths ["a2/"]}}}]
@@ -138,8 +160,8 @@
 (deftest test-merge-anon-profiles
   (let [expected-result {:A 1 :C 3 :profiles {:a {:A 1}
                                               :b {:B 2}}
-                         :repositories {"central" {:url "http://repo1.maven.org/maven2"}
-                                        "clojars" {:url "https://clojars.org/repo/"}}
+                         :repositories [["central" {:url "http://repo1.maven.org/maven2/"}]
+                                        ["clojars" {:url "https://clojars.org/repo/"}]]
                          :dependencies [], :compile-path "classes"}]
     (is (= expected-result
            (-> {:profiles {:a {:A 1} :b {:B 2}}}
@@ -147,8 +169,8 @@
 
 (deftest test-composite-profiles
   (let [expected-result {:A '(2 3 1), :B 2, :C 3,
-                         :repositories {"central" {:url "http://repo1.maven.org/maven2"}
-                                        "clojars" {:url "https://clojars.org/repo/"}}
+                         :repositories [["central" {:url "http://repo1.maven.org/maven2/"}]
+                                        ["clojars" {:url "https://clojars.org/repo/"}]]
                          :dependencies [], :compile-path "classes"}]
     (is (= expected-result
            (-> {:profiles {:a [:c :b]
@@ -160,8 +182,8 @@
 
 (deftest test-override-default
   (let [expected-result {:A 1, :B 2, :C 3
-                         :repositories {"central" {:url "http://repo1.maven.org/maven2"}
-                                        "clojars" {:url "https://clojars.org/repo/"}}
+                         :repositories [["central" {:url "http://repo1.maven.org/maven2/"}]
+                                        ["clojars" {:url "https://clojars.org/repo/"}]]
                          :dependencies [], :compile-path "classes"}]
     (is (= expected-result
            (-> {:profiles {:a {:A 1 :B 2}
@@ -175,8 +197,8 @@
   (let [expected-result {:A 1 :C 3 :profiles {:a {:A 1}
                                               :b {:B 2}
                                               :c {:C 3}}
-                         :repositories {"central" {:url "http://repo1.maven.org/maven2"}
-                                        "clojars" {:url "https://clojars.org/repo/"}}
+                         :repositories [["central" {:url "http://repo1.maven.org/maven2/"}]
+                                        ["clojars" {:url "https://clojars.org/repo/"}]]
                          :dependencies [], :compile-path "classes"}]
     (is (= expected-result
            (-> {:profiles {:a {:A 1}

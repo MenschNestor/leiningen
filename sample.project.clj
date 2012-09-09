@@ -47,7 +47,9 @@
   ;; provides new tasks or hooks.
   :plugins [[lein-pprint "1.1.1"]
             [lein-assoc "0.1.0"]
-            [s3-wagon-private "1.1.1"]]
+            [s3-wagon-private "1.1.1"]
+            [lein-foo "0.0.1" :hooks false]
+            [lein-bar "0.0.1" :middleware false]]
   ;; If you configure a custom repository with a self-signed SSL
   ;; certificate, you will need to add it here. Paths should be either
   ;; be on Leiningen's classpath or relative to the project root.
@@ -87,7 +89,7 @@
   ;; the following to share code from the test suite:
   :checkout-deps-shares [:source-paths :test-paths
                          ~(fn [p] (str (:root p) "/lib/dev/*"))]
-  ;; Load these namespaces on startup to pick up hooks from them.
+  ;; Load these namespaces from within Leiningen to pick up hooks from them.
   :hooks [leiningen.hooks.difftest]
   ;; Predicates to determine whether to run a test or not, take test metadata
   ;; as argument. See Leiningen tutorial for more information.
@@ -98,8 +100,8 @@
   ;; other Java interop functionality. Put a regex here to compile all
   ;; namespaces whose names match.
   :aot [org.example.sample]
-  ;; The -main function in this namespace will be run at launch (either via `lein run` or if you
-  ;; create an uberjar). It should be variadic, like so:
+  ;; The -main function in this namespace will be run at launch
+  ;; (either via `lein run` or from an uberjar). It should be variadic:
   ;;
   ;; (ns my.service.runner
   ;;   (:gen-class))
@@ -129,15 +131,24 @@
                  ;; If nREPL takes too long to load it may timeout,
                  ;; increase this to wait longer before timing out.
                  ;; Defaults to 30000 (30 seconds)
-                 :timeout 40000}
-  ;; Use a different server-side nREPL handler.
-  :nrepl-handler (clojure.tools.nrepl.server/default-handler)
-  ;; Add server-side middleware to nREPL stack.
-  :nrepl-middleware [my.nrepl.thing/wrap-amazingness
-                     (fn [handler]
-                       (fn [& args]
-                         (prn :middle args)
-                         (apply handler args)))]
+                 :timeout 40000
+                 ;; nREPL server customization
+                 ;; Only one of #{:nrepl-handler :nrepl-middleware}
+                 ;; may be used at a time
+                 ;; Use a different server-side nREPL handler
+                 :nrepl-handler (clojure.tools.nrepl.server/default-handler)
+                 ;; Add server-side middleware to nREPL stack
+                 :nrepl-middleware [my.nrepl.thing/wrap-amazingness
+                                    ;; TODO: link to more detailed documentation
+                                    ;; middleware without appropriate metadata
+                                    ;; (see clojure.tools.nrepl.middleware/set-descriptor!
+                                    ;; for details) will simply be appended to the stack
+                                    ;; of middleware (rather than ordered based on its
+                                    ;; expectations and requirements)
+                                    (fn [handler]
+                                      (fn [& args]
+                                        (prn :middle args)
+                                        (apply handler args)))]}
   ;; Forms to prepend to every form that is evaluated inside your project.
   ;; Allows working around the Gilardi Scenario: http://technomancy.us/143
   :injections [(require 'clojure.pprint)]
@@ -147,32 +158,34 @@
   :omit-default-repositories true
   ;; These repositories will be searched for :dependencies and
   ;; :plugins and will also be available to deploy to.
-  :repositories {"java.net" "http://download.java.net/maven/2"
-                 "sonatype"
-                 {:url "http://oss.sonatype.org/content/repositories/releases"
-                  ;; If a repository contains  releases only; setting :snapshots
-                  ;; to false will speed up dependency checking.
-                  :snapshots false
-                  ;; You can also set the policies for how to handle :checksum
-                  ;; failures to :fail, :warn, or :ignore. In :releases, :daily,
-                  ;; :always, and :never are supported.
-                  :releases {:checksum :fail :update :always}
-                  ;; You can set :checksum and :update here for them
-                  ;; to apply to both :releases and :snapshots:
-                  :update :always, :checksum :fail}
+  :repositories [["java.net" "http://download.java.net/maven/2"]
+                 ["sonatype" {:url "http://oss.sonatype.org/content/repositories/releases"
+                              ;; If a repository contains releases only setting
+                              ;; :snapshots to false will speed up dependencies.
+                              :snapshots false
+                              ;; You can also set the policies for how to handle
+                              ;; :checksum failures to :fail, :warn, or :ignore.
+                              :checksum :fail
+                              ;; How often should this repository be checked
+                              ;; for updates? (:daily, :always, or :never)
+                              :update :always
+                              ;; You can also apply them to releases only:
+                              :releases {:checksum :fail :update :always}}]
                  ;; Repositories named "snapshots" and "releases" automatically
                  ;; have their :snapshots and :releases disabled as appropriate.
                  ;; Credentials for repositories should *not* be stored
-                 ;; in project.clj but in ~/.lein/profiles.clj instead:
-                 ;; {:auth {:repository-auth {#"http://blueant.com/archiva/"
-                 ;;                           {:username "milgrim"
-                 ;;                            :password "locative.1"}}}}
+                 ;; in project.clj but in ~/.lein/credentials.clj.gpg instead,
+                 ;; see `lein help deploying` under "Authentication".
                  "snapshots" "http://blueant.com/archiva/snapshots"
                  "releases" {:url "http://blueant.com/archiva/internal"
                              ;; Using :env as a value here will cause an
                              ;; enironment variable to be used based on
                              ;; the key; in this case LEIN_PASSWORD.
-                             :username "milgrim" :password :env}}
+                             :username "milgrim" :password :env}]
+  ;; These repositories will be included with :repositories when loading plugins.
+  ;; This would normally be set in a profile for non-public repositories.
+  ;; All the options are the same as in the :repositories map.
+  :plugin-repositories [["internal-plugin-repo" "http://example.org/repo"]]
   ;; You can set :update and :checksum policies here to have them
   ;; apply for all :repositories. Usually you will not set :update
   ;; directly but apply the "update" profile instead.
@@ -181,8 +194,8 @@
   ;; the deploy task will give preference to repositories specified in
   ;; :deploy-repositories, and repos listed there will not be used for
   ;; dependency resolution.
-  :deploy-repositories {"releases" "http://blueant.com/archiva/internal/releases"
-                        "snapshots" "http://blueant.com/archiva/internal/snapshots"}
+  :deploy-repositories [["releases" "http://blueant.com/archiva/internal/releases"]
+                        ["snapshots" "http://blueant.com/archiva/internal/snapshots"]]
   ;; Fetch dependencies from mirrors. Mirrors override repositories when the key
   ;; in the :mirrors map matches either the name or URL of a specified
   ;; repository. All settings supported in :repositories may be set here too.
@@ -194,8 +207,8 @@
   ;; Prevent Leiningen from checking the network for dependencies.
   ;; This wouldn't normally be set in project.clj; it would come from a profile.
   :offline? true
-  ;; Override the location of the local maven repository.
-  :local-repo "/home/dude/.lein/repo"
+  ;; Override location of the local maven repository. Relative to project root.
+  :local-repo "local-m2"
   ;; If you'd rather use a different directory structure, you can set these.
   ;; Paths that contain "inputs" are vectors, "outputs" are strings.
   :source-paths ["src" "src/main/clojure"]
@@ -258,8 +271,7 @@
   :scm {:name "git" :tag "098afd745bcd" :url "http://127.0.0.1/git/my-project"}
 
   ;; include arbitrary xml in generated pom.xml file
-  :pom-addition [:developers [:developer [:name "My Name"]]]
-  )
+  :pom-addition [:developers [:developer [:name "My Name"]]])
 
 ;;; Environment Variables used by Leiningen
 

@@ -16,7 +16,7 @@
                   :exclusions [org.apache.maven/maven-model
                                org.sonatype.aether/aether-api
                                org.sonatype.aether/aether-util]]
-                 [reply "0.1.0-beta10"]
+                 [reply "0.1.0-beta11" :exclusions [ring/ring-core]]
                  [clj-http "0.4.2"]]
   ;; checkout-deps don't work with :eval-in :leiningen
   :profiles {:dev {:resource-paths ["leiningen-core/dev-resources"]
@@ -31,4 +31,6 @@
   :test-selectors {:default (complement :post-preview)
                    :offline (complement :online)}
   :source-paths ["leiningen-core/src" "src"]
+  ;; work around Clojure bug http://dev.clojure.org/jira/browse/CLJ-1034
+  :uberjar-exclusions [#"^data_readers.clj$"]
   :eval-in :leiningen)

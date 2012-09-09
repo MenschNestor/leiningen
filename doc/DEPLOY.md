@@ -11,7 +11,7 @@ There may be times when you want to make a library available to your
 team without making it public. This is best done by setting up a
 private repository. The simplest kind of private repository is a web
 server pointed at a directory full of static files. You can use a
-`file:///` URL in your `:repositories` key to deploy that way if the
+`file:///` URL in your `:repositories` to deploy that way if the
 directory is local to the machine on which Leiningen is running.
 [Amazon S3](http://aws.amazon.com/s3/) buckets are another simple
 choice; you can deploy to S3 buckets using
@@ -29,8 +29,8 @@ listing in project.clj. Archiva and Nexus offer separate repositories
 for snapshots and releases, so you'll want two entries for them:
 
 ```clj
-:repositories {"snapshots" "http://blueant.com/archiva/snapshots"
-               "releases" "http://blueant.com/archiva/internal"}
+:repositories [["snapshots" "http://blueant.com/archiva/snapshots"]
+               ["releases" "http://blueant.com/archiva/internal"]]
 ```
 
 If you are are deploying to a repository that is _only_ used for deployment
@@ -41,7 +41,7 @@ Deployment-only repositories useful across a number of locally developed
 projects may also be specified in the `:user` profile in `~/.lein/profiles.clj`:
 
 ```clj
-{:user {:deploy-repositories {"internal" "http://blueant.com/archiva/internal"}}}
+{:user {:deploy-repositories [["internal" "http://blueant.com/archiva/internal"]]}}
 ```
 
 ## Authentication
@@ -59,8 +59,8 @@ Leiningen will decrypt `~/.lein/credentials.clj.gpg` and use that to
 find the proper credentials for the given repository.
 
 ```clj
-:repositories {"releases" {:url "http://blueant.com/archiva/internal"
-                           :username "milgrim" :password :gpg}}
+:repositories [["releases" {:url "http://blueant.com/archiva/internal"
+                           :username "milgrim" :password :gpg}]]
 ```
 
 First write your credentials map to `~/.lein/credentials.clj` like so:
@@ -110,6 +110,77 @@ appropriately, you can deploy to it:
 
     $ lein deploy [repository-name]
 
-If the project's current version is a SNAPSHOT, it will default to
+If the project's current version is a `SNAPSHOT`, it will default to
 deploying to the `snapshots` repository; otherwise it will default to
 `releases`.
+
+## Deploying to Maven Central
+
+Deploying your libraries and other artifacts to [Maven
+Central](http://search.maven.org/) is often desirable.  Most tools that
+use the Maven repository format (including Leiningen, Gradle, sbt, and
+Maven itself) include Maven Central or one of its mirrors as a default
+repository for resolving project dependencies.  So, deploying your
+libraries to Maven Central offers the widest distribution, especially if
+your users are likely to be in languages other than Clojure.
+
+Thankfully, Leiningen can deploy your libraries to Maven Central, with
+a few additional bits of configuration.  All of the guidance about
+deploying to private repositories laid out above applies; but, here's a
+step-by-step recipe from start to finish:
+
+1. Register an account and groupId on `oss.sonatype.org`; refer to
+[this](https://docs.sonatype.org/display/Repository/Sonatype+OSS+Maven+Repository+Usage+Guide)
+for details on how to get registered (you can ignore most of the info on
+that page regarding configuring Maven and/or ant, since we'll not be
+touching those tools).  Note that all artifacts you deploy to OSS will
+need to use the groupId(s) you choose, so your project coordinates
+should be set up to match; e.g.:
+```clojure
+(defproject your.group.id/projectname "x.y.z" ...)
+```
+
+2. Add your credentials for `oss.sonatype.org` to your
+`~/.lein/credentials.clj.gpg` file.  Something like this will do:
+```clojure
+{#"https://oss.sonatype.org/.*"
+ {:username "username" :password "password"}}
+```
+Refer to the instructions earlier on this page for how to encrypt a
+plain-text `credentials.clj` using GPG.
+
+3. Add the OSS deployment repository endpoints to your project.clj, e.g.:
+```clojure
+:deploy-repositories [["releases" {:url "https://oss.sonatype.org/service/local/staging/deploy/maven2/"
+                                   :creds :gpg}
+                       "snapshots" {:url "https://oss.sonatype.org/content/repositories/snapshots/"
+                                    :creds :gpg}]]
+```
+
+4. Conform to OSS' requirements for uploaded artifacts' `pom.xml` files;
+all you need to do is make sure the following slots are populated
+properly in your `project.clj`:
+```clojure
+  :description
+  :url
+  :license
+  :scm
+  :pom-addition
+```
+Examples of OSS-acceptable values for these entries can be seen in this
+[`project.clj`
+file](https://github.com/cemerick/piggieback/blob/master/project.clj).
+Note that all of them should be appropriate for *your* project; blind
+copy/paste is not appropriate here.
+
+5. Run `lein deploy`.  Leiningen will push all of the files it would
+otherwise send to Clojars or your other private repository to the proper
+OSS repository (either releases or snapshots depending on whether your
+project's version number has `-SNAPSHOT` in it or not).
+
+6. If you're deploying a release, log in to `oss.sonatype.org`, and
+close and release/promote your staged repository.  (This manual step
+will eventually be automated through the use of a plugin.) The release
+will show up in OSS' releases repository immediately, and sync to Maven
+Central on the next cycle (~ 1-4 hours usually). 
+

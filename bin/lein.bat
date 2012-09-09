@@ -53,6 +53,14 @@ if exist "%~dp0..\src\leiningen\version.clj" (
     :: Not running from a checkout.
     if not exist "%LEIN_JAR%" goto NO_LEIN_JAR
     set CLASSPATH=%LEIN_JAR%
+  
+    if exist ".lein-classpath" (
+        for /f %%i in (.lein-classpath) do set CONTEXT_CP=%%i 
+
+        if NOT "x!CONTEXT_CP!"=="x" (
+            set CLASSPATH=!CONTEXT_CP!;!CLASSPATH!
+        )
+    )
 )
 
 if not "x%DEBUG%" == "x" echo CLASSPATH=!CLASSPATH!
@@ -100,11 +108,12 @@ if ERRORLEVEL 9009 (
 )
 :: set LEIN_JAR_URL=https://github.com/downloads/technomancy/leiningen/leiningen-%LEIN_VERSION%-standalone.jar
 set LEIN_JAR_URL=https://cloud.github.com/downloads/technomancy/leiningen/leiningen-%LEIN_VERSION%-standalone.jar
-%HTTP_CLIENT% "%LEIN_JAR%" %LEIN_JAR_URL%
+%HTTP_CLIENT% "%LEIN_JAR%.pending" %LEIN_JAR_URL%
 if ERRORLEVEL 1 (
-    del %LEIN_JAR%>nul 2>&1
+    del "%LEIN_JAR%.pending" >nul 2>&1
     goto DOWNLOAD_FAILED
 )
+move /y "%LEIN_JAR%.pending" "%LEIN_JAR%"
 goto EOF
 
 :DOWNLOAD_FAILED
@@ -180,8 +189,7 @@ if "%1" == "trampoline" (goto RUN_TRAMPOLINE) else (goto RUN_NORMAL)
 set "TRAMPOLINE_FILE=%TEMP%\lein-trampoline-%RANDOM%.bat"
 %JAVA_CMD% -client %LEIN_JVM_OPTS% ^
  -Dleiningen.original.pwd="%ORIGINAL_PWD%" ^
- -Dleiningen.trampoline-file="%TRAMPOLINE_FILE%" ^
- -cp "%CLASSPATH%" clojure.main -e "(use 'leiningen.core.main)(apply -main (map str '(%*)))"
+ -cp "%CLASSPATH%" clojure.main -e "(use 'leiningen.core.main)(apply -main "%TRAMPOLINE_FILE%" (map str '(%*)))"
 
 if not exist "%TRAMPOLINE_FILE%" goto EOF
 call "%TRAMPOLINE_FILE%"

@@ -13,25 +13,34 @@
             [leiningen.core.classpath :as classpath]
             [leiningen.core.main :as main]))
 
-(def profile {:dependencies '[[org.clojure/tools.nrepl "0.2.0-beta8"
-                               :exclusions [org.clojure/clojure]]
-                              [clojure-complete "0.2.1"
-                               :exclusions [org.clojure/clojure]]]})
+(def profile {:dependencies '[^:displace
+                               [org.clojure/tools.nrepl "0.2.0-beta9"
+                                :exclusions [org.clojure/clojure]]
+                              ^:displace
+                               [clojure-complete "0.2.1"
+                                :exclusions [org.clojure/clojure]]]})
 
-(def reply-profile {:dependencies '[[org.thnetos/cd-client "0.3.4"
-                                     :exclusions [org.clojure/clojure]]]})
+(def reply-profile {:dependencies '[^:displace
+                                     [org.thnetos/cd-client "0.3.4"
+                                      :exclusions [org.clojure/clojure]]]})
 
-(def trampoline-profile {:dependencies '[[reply "0.1.0-beta10"
-                                         :exclusions [org.clojure/clojure]]]})
+(def trampoline-profile {:dependencies '[^:displace
+                                          [reply "0.1.0-beta11"
+                                           :exclusions [org.clojure/clojure]]]})
 
-(defn- handler-for [project]
-  `(-> ~(:nrepl-handler project '(clojure.tools.nrepl.server/default-handler))
-       ~@(map list (:nrepl-middleware project))))
+(defn- handler-for [{{:keys [nrepl-middleware nrepl-handler]} :repl-options}]
+  (when (and nrepl-middleware nrepl-handler)
+    (main/abort "Can only use one of" :nrepl-handler "or" :nrepl-middleware))
+  (if nrepl-middleware
+    `(clojure.tools.nrepl.server/default-handler
+       ~@(map #(if (symbol? %) (list 'var %) %) nrepl-middleware))
+    (or nrepl-handler '(clojure.tools.nrepl.server/default-handler))))
 
-(defn- init-requires [project & nses]
+(defn- init-requires [{{:keys [nrepl-middleware nrepl-handler]} :repl-options
+                       :as project}
+                      & nses]
   (let [defaults '[clojure.tools.nrepl.server complete.core]
-        nrepl-syms (->> (cons (:nrepl-handler project)
-                              (:nrepl-middleware project))
+        nrepl-syms (->> (cons nrepl-handler nrepl-middleware)
                      (filter symbol?)
                      (map namespace)
                      (remove nil?)
@@ -47,6 +56,7 @@
                port# (-> server# deref :ss .getLocalPort)]
            (println "nREPL server started on port" port#)
            (spit ~(str (io/file (:target-path project) "repl-port")) port#)
+           (.deleteOnExit (io/file ~(:target-path project) "repl-port"))
            @(promise))]
     (if project
       (eval/eval-in-project
@@ -64,7 +74,7 @@
 (defn- repl-host [project]
   (or (System/getenv "LEIN_REPL_HOST")
       (-> project :repl-options :host)
-      "localhost"))
+      "127.0.0.1"))
 
 (def lein-repl-server
   (delay (nrepl.server/start-server
@@ -127,15 +137,14 @@ and port."
   ([project]
   (if trampoline/*trampoline?*
     (trampoline-repl project)
-    (let [prepped (promise)]
+    (let [prep-blocker @eval/prep-blocker]
       (nrepl.ack/reset-ack-port!)
       (.start
        (Thread.
         (bound-fn []
-          (start-server (and project (vary-meta project assoc :prepped prepped))
-                        (repl-host project) (repl-port project)
+          (start-server project (repl-host project) (repl-port project)
                         (-> @lein-repl-server deref :ss .getLocalPort)))))
-      (when project @prepped)
+      (when project @prep-blocker)
       (if-let [repl-port (nrepl.ack/wait-for-ack (-> project
                                                      :repl-options
                                                      (:timeout 30000)))]

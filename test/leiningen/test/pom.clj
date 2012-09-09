@@ -64,13 +64,12 @@
         "description is included")
     (is (= nil (first-in xml [:project :mailingLists]))
         "no mailing list")
-    (is (= ["central" "clojars" "snapshots"]
+    (is (= ["central" "clojars" "other"]
            (map #(first-in % [:repository :id])
                 (deep-content xml [:project :repositories])))
         "repositories are named")
-    (is (= ["http://repo1.maven.org/maven2" "https://clojars.org/repo/"
-            (format "file://%s/lein-repo"
-                    (System/getProperty "java.io.tmpdir"))]
+    (is (= ["http://repo1.maven.org/maven2/" "https://clojars.org/repo/"
+            "http://example.com/repo"]
            (map #(first-in % [:repository :url])
                 (deep-content xml [:project :repositories])))
         "repositories have correct location")
@@ -145,6 +144,25 @@
            (map #(first-in % [:dependency :version])
                 (deep-content xml [:project :dependencies]))))
     (is (= [nil nil nil "test"]
+           (map #(first-in % [:dependency :scope])
+                (deep-content xml [:project :dependencies]))))))
+
+(deftest provided-dependencies-are-provided-scoped
+  (let [xml (xml/parse-str
+             (make-pom (with-profile
+                         sample-project
+                         :provided
+                         {:dependencies '[[peridot "0.0.5"]]})))]
+    (is (= ["org.clojure" "rome" "ring" "peridot"]
+           (map #(first-in % [:dependency :groupId])
+                (deep-content xml [:project :dependencies]))))
+    (is (= ["clojure" "rome" "ring" "peridot"]
+           (map #(first-in % [:dependency :artifactId])
+                (deep-content xml [:project :dependencies]))))
+    (is (= ["1.3.0" "0.9" "1.0.0" "0.0.5"]
+           (map #(first-in % [:dependency :version])
+                (deep-content xml [:project :dependencies]))))
+    (is (= [nil nil nil "provided"]
            (map #(first-in % [:dependency :scope])
                 (deep-content xml [:project :dependencies]))))))
 
@@ -278,6 +296,7 @@
 
 (deftest test-snapshot-checking
   (binding [leiningen.core.main/*exit-process?* false]
-    (let [project (assoc sample-project :version "1.0"
-                         :dependencies [['clojure "1.0.0-SNAPSHOT"]])]
+    (let [project (vary-meta sample-project update-in [:without-profiles] assoc
+                             :version "1.0"
+                             :dependencies [['clojure "1.0.0-SNAPSHOT"]])]
       (is (thrown? Exception (pom project))))))

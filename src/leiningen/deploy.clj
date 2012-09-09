@@ -4,6 +4,7 @@
             [leiningen.core.classpath :as classpath]
             [leiningen.core.main :as main]
             [leiningen.core.eval :as eval]
+            [leiningen.core.user :as user]
             [clojure.java.io :as io]
             [leiningen.pom :as pom]
             [leiningen.jar :as jar]))
@@ -30,21 +31,18 @@
                                     (into-array ["Password: "]))]
         [id (assoc settings :username username :password password)]))))
 
-(defn repo-for [project repository-name]
-  ;; can't use merge here due to bug in ordered maps:
-  ;; https://github.com/flatland/ordered/issues/4
-  (let [repo-opts (or (get (:deploy-repositories project) repository-name)
-                      (get (:repositories project) repository-name))
-        repo (cond (not repo-opts) ["inline" {:url repository-name}]
-                   (string? repo-opts) [repository-name {:url repo-opts}]
-                   :else [repository-name repo-opts])
-        repo (classpath/add-repo-auth repo)
-        repo (add-auth-interactively repo)]
-    repo))
+(defn repo-for [project name]
+  (let [[settings] (for [[id settings] (concat (:deploy-repositories project)
+                                               (:repositories project)
+                                               [[name {:url name}]])
+                         :when (= id name)] settings)]
+    (-> [name settings]
+        (classpath/add-repo-auth)
+        (add-auth-interactively))))
 
 (defn sign [file]
   (let [exit (binding [*out* (java.io.StringWriter.)]
-               (eval/sh "gpg" "--yes" "-ab" file))]
+               (eval/sh (user/gpg-program) "--yes" "-ab" file))]
     (when-not (zero? exit)
       (main/abort "Could not sign" file))
     (str file ".asc")))
@@ -73,9 +71,9 @@
 
 The target repository will be looked up in :repositories in project.clj:
 
-  :repositories {\"snapshots\" \"https://internal.repo/snapshots\"
-                 \"releases\" \"https://internal.repo/releases\"
-                 \"alternate\" \"https://other.server/repo\"}
+  :repositories [[\"snapshots\" \"https://internal.repo/snapshots\"]
+                 [\"releases\" \"https://internal.repo/releases\"]
+                 [\"alternate\" \"https://other.server/repo\"]]
 
 If you don't provide a repository name to deploy to, either \"snapshots\" or
 \"releases\" will be used depending on your project's current version. See

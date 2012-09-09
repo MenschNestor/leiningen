@@ -115,6 +115,7 @@
   ([project uberjar?]
      (let [target (doto (io/file (:target-path project)) .mkdirs)
            suffix (if uberjar? "-standalone.jar" ".jar")
+           ;; TODO: splice in version to :jar-name
            jar-name (or (project (if uberjar? :uberjar-name :jar-name))
                         (str (:name project) "-" (:version project) suffix))]
        (str (io/file target jar-name))))
@@ -127,7 +128,8 @@ Create a $PROJECT-$VERSION.jar file containing project's source files as well
 as .class files if applicable. If project.clj contains a :main key, the -main
 function in that namespace will be used as the main-class for executable jar."
   [project]
-  (let [project (project/unmerge-profiles project [:default])]
+  (let [project (-> (project/unmerge-profiles project [:default])
+                    (project/merge-profiles [:provided]))]
     (eval/prep project)
     (let [jar-file (get-jar-filename project)]
       (write-jar project jar-file (filespecs project []))
